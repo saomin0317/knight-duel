@@ -126,7 +126,7 @@ async function initAudio() {
   audioCtx = new AudioContext();
   await Promise.all(Object.entries(SFX_FILES).map(async ([key, names]) => {
     const bufs = await Promise.all(names.map(async (n) => {
-      const res = await fetch(`/sfx/${n}.ogg`);
+      const res = await fetch(`sfx/${n}.ogg`);
       return audioCtx!.decodeAudioData(await res.arrayBuffer());
     }));
     sfxBuffers.set(key, bufs);
@@ -271,8 +271,8 @@ async function boot() {
   const foeIdx = (parseInt(localStorage.getItem('enemyIdx') ?? '0', 10) || 0) % ENEMY_ROSTER.length;
   const charKeys = [...new Set(['knight', ENEMY_ROSTER[foeIdx].char])];
   const loaded = await Promise.all([
-    ...charKeys.map((k) => loader.loadAsync(`/models/${CHAR_FILES[k]}`)),
-    ...itemNames.map((n) => loader.loadAsync(`/models/${n}.gltf`).then((g) => {
+    ...charKeys.map((k) => loader.loadAsync(`models/${CHAR_FILES[k]}`)),
+    ...itemNames.map((n) => loader.loadAsync(`models/${n}.gltf`).then((g) => {
       g.scene.traverse((o) => { o.castShadow = true; });
       return g.scene;
     })),
