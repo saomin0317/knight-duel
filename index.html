@@ -123,6 +123,14 @@
       border-radius: 10px; cursor: pointer; font-weight: 700;
     }
     #btn-start:hover { background: #962525; }
+    /* 載入畫面:蓋住模型下載的空窗(正式站要抓幾 MB) */
+    #loading {
+      position: fixed; inset: 0; z-index: 60; background: #100d09;
+      display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px;
+    }
+    #loading .ld-name { font-size: 34px; font-weight: 800; color: #ffd766; letter-spacing: 3px; }
+    #loading .ld-text { font-size: 14px; color: #998; animation: ldpulse 1.2s ease-in-out infinite; }
+    @keyframes ldpulse { 0%, 100% { opacity: 0.35; } 50% { opacity: 1; } }
     #ts-rating {
       position: fixed; bottom: 18px; display: flex; align-items: center; gap: 10px;
       left: 50%; transform: translateX(-50%);
@@ -144,6 +152,10 @@
     <div id="shop-items"></div>
     <div class="shop-note">按 B 開關|買到手後點「裝備」立刻換裝(重開本場)</div>
   </div>
+  <div id="loading">
+    <div class="ld-name">⚔ 武士圓舞曲</div>
+    <div class="ld-text">載入中…</div>
+  </div>
   <div id="titlescreen">
     <div id="ts-name">⚔ 武士圓舞曲</div>
     <div id="ts-sub">Knight's Waltz・俯視角物理決鬥</div>
@@ -154,6 +166,11 @@
       <div class="rtext">本遊戲為輔導十五歲級,未滿十五歲之人不得使用<br>部分內容涉及暴力、血腥情節|依遊戲軟體分級管理辦法標示</div>
     </div>
   </div>
+  <script>
+    // 開場畫面只在本分頁第一次出現——這裡就要判斷,不能等遊戲載完才藏
+    // (正式站模型下載要幾秒,晚藏的話每次 reload 都會閃出開場畫面)
+    if (sessionStorage.getItem('kd_title_seen')) document.getElementById('titlescreen').style.display = 'none';
+  </script>
   <div id="menu">
     <div id="menu-title">⚔ 武士圓舞曲</div>
     <div id="hero-label">◀ ▶ 或滑鼠拖曳旋轉人物<br>鐵匠鋪買的裝備會直接穿在身上</div>

@@ -284,6 +284,15 @@ const CHAR_FILES: Record<string, string> = {
 };
 
 async function boot() {
+  try {
+    await bootInner();
+    document.getElementById('loading')!.style.display = 'none';
+  } catch (e) {
+    document.querySelector('#loading .ld-text')!.textContent = '載入失敗,請重新整理再試';
+    throw e;
+  }
+}
+async function bootInner() {
   await RAPIER.init();
   const loader = new GLTFLoader();
   // 武器/盾模型都小,全載;角色 GLB 一隻 ~4MB,只載本場要用的兩隻
