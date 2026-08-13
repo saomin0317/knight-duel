@@ -348,6 +348,8 @@ function start(models: Models) {
     mixer: THREE.AnimationMixer;
     walkAction: THREE.AnimationAction | null = null;
     idleAction: THREE.AnimationAction | null = null;
+    cheerAction: THREE.AnimationAction | null = null;
+    celebrating = false;
     flashMats: THREE.MeshStandardMaterial[] = [];
     debrisParts: DebrisPart[] = [];
     flashUntil = 0;
@@ -464,8 +466,10 @@ function start(models: Models) {
       this.mixer = new THREE.AnimationMixer(this.model);
       const walkClip = char.animations.find((a) => a.name === 'Walking_A');
       const idleClip = char.animations.find((a) => a.name === 'Idle');
+      const cheerClip = char.animations.find((a) => a.name === 'Cheer');
       if (walkClip) { this.walkAction = this.mixer.clipAction(walkClip); this.walkAction.play(); }
       if (idleClip) { this.idleAction = this.mixer.clipAction(idleClip); this.idleAction.play(); }
+      if (cheerClip) this.cheerAction = this.mixer.clipAction(cheerClip);
 
       // ----- 物理手臂外觀 -----
       const armRight = staticPart(char.scene, /ArmRight$/);
@@ -528,6 +532,28 @@ function start(models: Models) {
       }
     }
 
+    // 中途斷肢:單臂脫離 + 噴血 + 小血泊(手臂+武器變殘骸自然飛走)
+    severArm(arm: Arm, ix: number, iy: number) {
+      if (!arm.joint) return;
+      world.removeImpulseJoint(arm.joint, true);
+      arm.joint = null;
+      arm.rb.applyImpulse({ x: ix * 0.1 + (Math.random() - 0.5) * 0.06, y: iy * 0.1 + (Math.random() - 0.5) * 0.06 }, true);
+      arm.rb.applyTorqueImpulse((Math.random() - 0.5) * 1.0, true);
+      const sp = arm.rb.translation();
+      spawnBlood(to3D({ x: sp.x, y: sp.y }, 0.9 * S), 24);
+      spawnPool(to3D({ x: sp.x, y: sp.y }), 0.45);
+    }
+
+    // 勝利歡呼
+    victoryPose() {
+      this.celebrating = true;
+      if (this.cheerAction) {
+        this.cheerAction.reset();
+        this.cheerAction.setEffectiveWeight(1);
+        this.cheerAction.play();
+      }
+    }
+
     get pos() { return this.rb.translation(); }
     get angle() { return this.rb.rotation(); }
 
@@ -585,6 +611,8 @@ function start(models: Models) {
       this.stuckTime = 0;
       this.stamina = CFG.staminaMax;
       this.exhausted = false;
+      this.celebrating = false;
+      this.cheerAction?.stop();
       this.rig.visible = true;
       for (const arm of [this.swordArm, this.shieldArm]) arm.group.visible = true;
     }
@@ -604,11 +632,16 @@ function start(models: Models) {
       const bw = this.rb.angvel();
       const speed = Math.hypot(lv.x, lv.y);
       const w = THREE.MathUtils.clamp(speed / 1.4, 0, 1);
-      if (this.walkAction) {
-        this.walkAction.setEffectiveWeight(w);
-        this.walkAction.timeScale = 0.5 + speed * 0.45;
+      if (this.celebrating) {
+        this.walkAction?.setEffectiveWeight(0);
+        this.idleAction?.setEffectiveWeight(0);
+      } else {
+        if (this.walkAction) {
+          this.walkAction.setEffectiveWeight(w);
+          this.walkAction.timeScale = 0.5 + speed * 0.45;
+        }
+        if (this.idleAction) this.idleAction.setEffectiveWeight(1 - w);
       }
-      if (this.idleAction) this.idleAction.setEffectiveWeight(1 - w);
       this.mixer.update(dt);
       const a = this.angle;
       const fwdSpeed = lv.x * Math.cos(a) + lv.y * Math.sin(a);
@@ -761,6 +794,17 @@ function start(models: Models) {
     localStorage.setItem('kd_mode', 'menu');
     location.reload(); // 角色 GLB 只載本場需要的,換對手要重載
   }
+  // 主畫面:滑鼠左鍵拖曳也能旋轉人物
+  let dragX: number | null = null;
+  renderer.domElement.addEventListener('pointerdown', (e) => { if (mode === 'menu') dragX = e.clientX; });
+  window.addEventListener('pointermove', (e) => {
+    if (dragX !== null && mode === 'menu') {
+      player.rb.setRotation(player.angle + (e.clientX - dragX) * 0.012, true);
+      dragX = e.clientX;
+    }
+  });
+  window.addEventListener('pointerup', () => { dragX = null; });
+
   document.getElementById('btn-fight')!.addEventListener('click', startBattle);
   document.getElementById('btn-restart')!.addEventListener('click', () => restart());
   document.getElementById('btn-shop2')!.addEventListener('click', () => toggleShop());
@@ -810,19 +854,19 @@ function start(models: Models) {
   // ---------- 地上血泊 ----------
   const poolGeo = new THREE.CircleGeometry(1, 24);
   const poolMat = new THREE.MeshBasicMaterial({ color: 0x550000, transparent: true, opacity: 0.85 });
-  const pools: { mesh: THREE.Mesh; age: number }[] = [];
-  function spawnPool(at: THREE.Vector3) {
+  const pools: { mesh: THREE.Mesh; age: number; sizeMult: number }[] = [];
+  function spawnPool(at: THREE.Vector3, sizeMult = 1) {
     const mesh = new THREE.Mesh(poolGeo, poolMat);
     mesh.rotation.x = -Math.PI / 2;
     mesh.position.set(at.x, 0.02 + pools.length * 0.002, at.z);
     mesh.scale.setScalar(0.01);
-    pools.push({ mesh, age: 0 });
+    pools.push({ mesh, age: 0, sizeMult });
     scene.add(mesh);
   }
   function updatePools(dt: number) {
     for (const p of pools) {
       p.age += dt;
-      p.mesh.scale.setScalar(Math.min(1, p.age * 1.5) * 0.9 * S);
+      p.mesh.scale.setScalar(Math.min(1, p.age * 1.5) * 0.9 * S * p.sizeMult);
     }
   }
 
@@ -901,8 +945,19 @@ function start(models: Models) {
     hpFillEnemy.style.width = `${(enemy.hp / enemy.maxHp) * 100}%`;
   }
 
+  // 斷肢/受擊提示(短暫顯示,不蓋過勝負訊息)
+  let flashTimer: number | undefined;
+  function flashMsg(text: string) {
+    if (gameOver) return;
+    msgEl.textContent = text;
+    msgEl.style.display = 'block';
+    clearTimeout(flashTimer);
+    flashTimer = window.setTimeout(() => { if (!gameOver) msgEl.style.display = 'none'; }, 1100);
+  }
+
   function swordHitCheck(attacker: Knight, victim: Knight) {
     if (gameOver) return;
+    if (!attacker.swordArm.joint) return; // 持劍手被砍斷就無法攻擊
     const wp = attacker.swordArm.rb.translation();
     const wa = attacker.swordArm.rb.rotation();
     const v = victim.pos;
@@ -931,9 +986,23 @@ function start(models: Models) {
     spawnBlood(to3D({ x: cx, y: cy }, 0.8 * S), Math.min(30, Math.round(dmg * 1.5)));
     updateHpBars();
 
+    // 中途斷肢:重擊才有機會,打到哪半邊斷哪隻手(右=持劍手,左=持盾手)
+    if (victim.hp > 0 && dmg > 45) {
+      const lx = cx - v.x, ly = cy - v.y;
+      const va = victim.angle;
+      const localY = -Math.sin(va) * lx + Math.cos(va) * ly;
+      const targetArm = localY < 0 ? victim.swordArm : victim.shieldArm;
+      if (targetArm.joint && Math.random() < Math.min(0.5, dmg / 160)) {
+        victim.severArm(targetArm, impact.x, impact.y);
+        const armName = targetArm === victim.swordArm ? '持劍手' : '持盾手';
+        flashMsg(victim.isPlayer ? `你的${armName}被砍斷了!` : `砍斷了敵人的${armName}!`);
+      }
+    }
+
     if (victim.hp <= 0) {
       gameOver = true;
       shatter(victim, impact);
+      attacker.victoryPose();
       if (victim.isPlayer) {
         msgEl.textContent = '你被擊敗了…';
       } else {
@@ -985,6 +1054,15 @@ function start(models: Models) {
     const dist = Math.hypot(dx, dy);
     const targetAngle = Math.atan2(dy, dx);
     const diff = wrapAngle(targetAngle - enemy.angle);
+
+    // 斷臂逃命:持劍手沒了打不了人,能逃多遠逃多遠
+    if (!enemy.swordArm.joint) {
+      const ux = -dx / dist, uy = -dy / dist;
+      enemy.rb.applyImpulse({ x: ux * CFG.moveForce * 1.2 * dt, y: uy * CFG.moveForce * 1.2 * dt }, true);
+      const w0 = enemy.rb.angvel();
+      enemy.turn(diff * 4 - w0 * 1.5, dt);
+      return;
+    }
 
     // 反陀螺:玩家的刀還在轉、或快要能轉(力竭尾聲體力回升)就退到掃不到的地方等
     const playerSpinning = Math.abs(player.rb.angvel()) > 2.5 || (player.exhausted && player.stamina >= 45);
@@ -1064,6 +1142,10 @@ function start(models: Models) {
       if (keys.has('arrowup') || keys.has('w')) player.forward(CFG.moveForce, dt);
       if (keys.has('arrowdown') || keys.has('s')) player.forward(-CFG.moveForce * 0.7, dt);
       updateAI(dt);
+    } else if (mode === 'menu') {
+      // 主畫面:左右鍵旋轉人物看造型
+      if (keys.has('arrowleft') || keys.has('a')) player.rb.setRotation(player.angle + 2.4 * dt, true);
+      if (keys.has('arrowright') || keys.has('d')) player.rb.setRotation(player.angle - 2.4 * dt, true);
     }
 
     player.updateStamina(dt);
@@ -1086,9 +1168,15 @@ function start(models: Models) {
     // 鏡頭:主畫面=貼近看主角造型;戰鬥=中點跟隨+距離縮放,指數平滑不暈
     const k = 1 - Math.exp(-3 * dt);
     if (mode === 'menu') {
+      // 主角擺在畫面左半空間的中間:看點沿鏡頭右向偏移,人物就往左讓
       const pp = player.pos;
-      camPos.lerp(new THREE.Vector3(pp.x + 2.4, 2.6, -pp.y + 2.9), k);
-      camLook.lerp(new THREE.Vector3(pp.x, 1.0, -pp.y), k);
+      const eye = new THREE.Vector3(pp.x + 2.4, 2.6, -pp.y + 2.9);
+      const tgt = new THREE.Vector3(pp.x, 1.0, -pp.y);
+      const dirv = tgt.clone().sub(eye).normalize();
+      const rightv = new THREE.Vector3().crossVectors(dirv, camera.up).normalize();
+      tgt.addScaledVector(rightv, 1.05);
+      camPos.lerp(eye, k);
+      camLook.lerp(tgt, k);
     } else {
       const pp = player.pos, ep = enemy.pos;
       const midX = (pp.x + ep.x) / 2, midY = (pp.y + ep.y) / 2;
