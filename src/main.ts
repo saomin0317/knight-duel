@@ -971,7 +971,12 @@ function start(models: Models) {
   document.getElementById('btn-menu')!.addEventListener('click', () => { playSfx('click', 0.6); openMenu(); });
   document.getElementById('opp-prev')!.addEventListener('click', () => setOpp(-1));
   document.getElementById('opp-next')!.addEventListener('click', () => setOpp(1));
-  (window as unknown as Record<string, unknown>).__game = { player, enemy, CFG, WEAPONS, SHIELDS, SAVE, persistSave, reloadWithCloudSync };
+  // 除錯後門只在開發模式開:正式版不給「開 console 一行改金幣」的邀請
+  // (真的想作弊仍可能,重要判定的防線在伺服器端驗證)
+  if (import.meta.env.DEV) {
+    (window as unknown as Record<string, unknown>).__game = { player, enemy, CFG, WEAPONS, SHIELDS, SAVE, persistSave, reloadWithCloudSync };
+    (window as unknown as Record<string, unknown>).__dev = { getToken: () => currentUser?.getIdToken() };
+  }
 
   // ---------- 噴血粒子 ----------
   const bloodGeo = new THREE.BoxGeometry(0.07, 0.07, 0.07);
