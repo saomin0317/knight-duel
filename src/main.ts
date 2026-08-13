@@ -1001,6 +1001,7 @@ function start(models: Models) {
   function openMenu() {
     mode = 'menu';
     localStorage.setItem('kd_mode', 'menu');
+    document.body.classList.add('ui-menu'); // 藏戰鬥 HUD
     restart();
     setEnemyVisible(false);
     menuEl.classList.add('open');
@@ -1011,6 +1012,7 @@ function start(models: Models) {
   function startBattle() {
     mode = 'battle';
     localStorage.setItem('kd_mode', 'battle');
+    document.body.classList.remove('ui-menu');
     menuEl.classList.remove('open');
     battleBtnsEl.classList.remove('hidden');
     toggleShop(false);
@@ -1091,6 +1093,7 @@ function start(models: Models) {
   document.getElementById('btn-start')!.addEventListener('click', () => {
     sessionStorage.setItem('kd_title_seen', '1');
     titleEl.style.display = 'none';
+    if (isTouch) document.getElementById('touch-controls')!.style.display = 'block';
     initAudio().then(() => playSfx('clangHeavy', 0.6));
     openMenu(); // 表演賽結束,進主畫面
   });
@@ -1367,8 +1370,11 @@ function start(models: Models) {
   window.addEventListener('keyup', (e) => keys.delete(e.key.toLowerCase()));
 
   // 觸控按鈕:按住=按鍵按住,直接餵進 keys(多點觸控,邊轉邊走)
+  // 開場畫面蓋著時先不顯示(會從半透明遮罩底下露出來很亂),進入遊戲才開
   if (isTouch) {
-    document.getElementById('touch-controls')!.style.display = 'block';
+    if (document.getElementById('titlescreen')!.style.display === 'none') {
+      document.getElementById('touch-controls')!.style.display = 'block';
+    }
     const bindTouch = (id: string, key: string) => {
       const el = document.getElementById(id)!;
       const down = (e: PointerEvent) => { e.preventDefault(); keys.add(key); el.classList.add('on'); };
