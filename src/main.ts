@@ -646,7 +646,7 @@ function start(models: Models) {
       const owned = SAVE.ownedW.includes(k);
       const eq = SAVE.eqW === k;
       const cant = !owned && SAVE.gold < w.price;
-      html += `<div class="srow"><span class="sname">${w.label}</span>
+      html += `<div class="srow"><img class="thumb" src="${thumbOf(w.model)}"><span class="sname">${w.label}</span>
         <span class="sstat">長 ${w.length.toFixed(1)}|${weightLabel(w.density)}|威力 x${w.dmgMult}</span>
         <button data-t="w" data-k="${k}" class="${eq ? 'eq' : cant ? 'cant' : ''}">${eq ? '裝備中' : owned ? '裝備' : `${w.price} 金`}</button></div>`;
     }
@@ -655,7 +655,7 @@ function start(models: Models) {
       const owned = SAVE.ownedS.includes(k);
       const eq = SAVE.eqS === k;
       const cant = !owned && SAVE.gold < s.price;
-      html += `<div class="srow"><span class="sname">${s.label}</span>
+      html += `<div class="srow"><img class="thumb" src="${thumbOf(s.model)}"><span class="sname">${s.label}</span>
         <span class="sstat">寬 ${(s.halfWidth * 2).toFixed(1)}|${weightLabel(s.density)}</span>
         <button data-t="s" data-k="${k}" class="${eq ? 'eq' : cant ? 'cant' : ''}">${eq ? '裝備中' : owned ? '裝備' : `${s.price} 金`}</button></div>`;
     }
@@ -676,6 +676,7 @@ function start(models: Models) {
         } else if ((isW ? SAVE.eqW : SAVE.eqS) !== k) {
           if (isW) SAVE.eqW = k; else SAVE.eqS = k;
           persistSave();
+          localStorage.setItem('kd_mode', 'menu'); // 換裝後回主畫面看造型
           location.reload(); // 裝備綁在建構期(碰撞體+模型),重載最乾淨
         }
       });
@@ -687,6 +688,94 @@ function start(models: Models) {
     if (shopOpen) renderShop();
   }
   updateGold();
+
+  // ---------- 裝備縮圖:離屏渲染模型生成,不用外部圖 ----------
+  let thumbRenderer: THREE.WebGLRenderer | null = null;
+  const thumbCache = new Map<string, string>();
+  function thumbOf(name: string): string {
+    const cached = thumbCache.get(name);
+    if (cached) return cached;
+    if (!thumbRenderer) {
+      thumbRenderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true });
+      thumbRenderer.setSize(96, 96);
+    }
+    const sc = new THREE.Scene();
+    sc.add(new THREE.HemisphereLight(0xffffff, 0x555544, 1.5));
+    const dl = new THREE.DirectionalLight(0xffffff, 1.8);
+    dl.position.set(2, 3, 2);
+    sc.add(dl);
+    const obj = models.items[name].clone(true);
+    const box = new THREE.Box3().setFromObject(obj);
+    obj.position.sub(box.getCenter(new THREE.Vector3()));
+    sc.add(obj);
+    const span = box.getSize(new THREE.Vector3()).length();
+    const cam = new THREE.PerspectiveCamera(35, 1, 0.01, 50);
+    const d = span * 0.85 + 0.15;
+    cam.position.set(d, d * 0.65, d);
+    cam.lookAt(0, 0, 0);
+    thumbRenderer.render(sc, cam);
+    const url = thumbRenderer.domElement.toDataURL();
+    thumbCache.set(name, url);
+    return url;
+  }
+
+  // ---------- 主畫面 / 戰鬥 模式切換 ----------
+  const menuEl = document.getElementById('menu')!;
+  const battleBtnsEl = document.getElementById('battle-btns')!;
+  const oppLabelEl = document.getElementById('opp-label')!;
+  let mode: 'menu' | 'battle' = localStorage.getItem('kd_mode') === 'battle' ? 'battle' : 'menu';
+  let menuTimer: number | undefined;
+
+  function setEnemyVisible(v: boolean) {
+    enemy.mesh.visible = v;
+    enemy.swordArm.group.visible = v;
+    enemy.shieldArm.group.visible = v;
+  }
+  function updateMenuUI() {
+    oppLabelEl.textContent = `${foe.label}|血量 x${foe.hpMult}|賞金 ${foe.reward}`;
+    document.querySelectorAll<HTMLButtonElement>('#arena-select button').forEach((b) => {
+      b.classList.toggle('cur', b.dataset.shape === arenaShape);
+    });
+  }
+  function openMenu() {
+    mode = 'menu';
+    localStorage.setItem('kd_mode', 'menu');
+    restart();
+    setEnemyVisible(false);
+    menuEl.classList.add('open');
+    battleBtnsEl.classList.add('hidden');
+    toggleShop(true);
+    updateMenuUI();
+  }
+  function startBattle() {
+    mode = 'battle';
+    localStorage.setItem('kd_mode', 'battle');
+    menuEl.classList.remove('open');
+    battleBtnsEl.classList.remove('hidden');
+    toggleShop(false);
+    setEnemyVisible(true);
+    restart();
+  }
+  function setOpp(delta: number) {
+    localStorage.setItem('enemyIdx', String((enemyIdx + delta + ENEMY_ROSTER.length) % ENEMY_ROSTER.length));
+    localStorage.setItem('kd_mode', 'menu');
+    location.reload(); // 角色 GLB 只載本場需要的,換對手要重載
+  }
+  document.getElementById('btn-fight')!.addEventListener('click', startBattle);
+  document.getElementById('btn-restart')!.addEventListener('click', () => restart());
+  document.getElementById('btn-shop2')!.addEventListener('click', () => toggleShop());
+  document.getElementById('btn-menu')!.addEventListener('click', openMenu);
+  document.getElementById('opp-prev')!.addEventListener('click', () => setOpp(-1));
+  document.getElementById('opp-next')!.addEventListener('click', () => setOpp(1));
+  document.querySelectorAll<HTMLButtonElement>('#arena-select button').forEach((b) => {
+    b.addEventListener('click', () => {
+      arenaShape = b.dataset.shape!;
+      buildArena(arenaShape);
+      restart();
+      if (mode === 'menu') setEnemyVisible(false);
+      updateMenuUI();
+    });
+  });
   (window as unknown as Record<string, unknown>).__game = { player, enemy, CFG, WEAPONS, SHIELDS };
 
   // ---------- 噴血粒子 ----------
@@ -846,14 +935,17 @@ function start(models: Models) {
       gameOver = true;
       shatter(victim, impact);
       if (victim.isPlayer) {
-        msgEl.textContent = '你被擊敗了 — 按 R 再來';
+        msgEl.textContent = '你被擊敗了…';
       } else {
         SAVE.gold += foe.reward;
         persistSave();
         updateGold();
-        msgEl.textContent = `你贏了!+${foe.reward} 金幣 — R 再打|N 下一個對手|B 鐵匠鋪`;
+        msgEl.textContent = `你贏了!+${foe.reward} 金幣`;
       }
       msgEl.style.display = 'block';
+      // 讓殘骸飛一下,自動回主畫面
+      clearTimeout(menuTimer);
+      menuTimer = window.setTimeout(() => { if (gameOver) openMenu(); }, 2800);
     }
   }
 
@@ -863,17 +955,16 @@ function start(models: Models) {
     if (e.key.startsWith('Arrow')) e.preventDefault();
     const k = e.key.toLowerCase();
     keys.add(k);
-    if (k === 'r') restart();
+    if (k === 'r' && mode === 'battle') restart();
     if (k === 'b') toggleShop();
-    if (k === 'n') {
-      // 換下一個對手:重載頁面重建(角色/武器/碎裂部件全綁在建構期)
-      localStorage.setItem('enemyIdx', String((enemyIdx + 1) % ENEMY_ROSTER.length));
-      location.reload();
-    }
+    if (k === 'n') setOpp(1);
+    if (k === 'escape' && mode === 'battle') openMenu();
     if (SHAPE_KEYS[k]) {
       arenaShape = SHAPE_KEYS[k];
       buildArena(arenaShape);
       restart(); // 換場地把人拉回出生點,避免卡在新牆外
+      if (mode === 'menu') setEnemyVisible(false);
+      updateMenuUI();
     }
   });
   window.addEventListener('keyup', (e) => keys.delete(e.key.toLowerCase()));
@@ -967,7 +1058,7 @@ function start(models: Models) {
     last = now;
     clock += dt;
 
-    if (!gameOver && !shopOpen) {
+    if (mode === 'battle' && !gameOver && !shopOpen) {
       if (keys.has('arrowleft') || keys.has('a')) player.turn(CFG.turnTorque, dt);
       if (keys.has('arrowright') || keys.has('d')) player.turn(-CFG.turnTorque, dt);
       if (keys.has('arrowup') || keys.has('w')) player.forward(CFG.moveForce, dt);
@@ -992,14 +1083,20 @@ function start(models: Models) {
     updatePools(dt);
     updateDebris(dt);
 
-    // 動態鏡頭:中點跟隨 + 距離縮放,指數平滑不暈
-    const pp = player.pos, ep = enemy.pos;
-    const midX = (pp.x + ep.x) / 2, midY = (pp.y + ep.y) / 2;
-    const sep = Math.hypot(pp.x - ep.x, pp.y - ep.y);
-    const h = THREE.MathUtils.clamp(8 + sep * 1.1, 10.5, 16.5);
+    // 鏡頭:主畫面=貼近看主角造型;戰鬥=中點跟隨+距離縮放,指數平滑不暈
     const k = 1 - Math.exp(-3 * dt);
-    camPos.lerp(new THREE.Vector3(midX, h, -midY + h * 0.35), k);
-    camLook.lerp(new THREE.Vector3(midX, 0, -midY), k);
+    if (mode === 'menu') {
+      const pp = player.pos;
+      camPos.lerp(new THREE.Vector3(pp.x + 2.4, 2.6, -pp.y + 2.9), k);
+      camLook.lerp(new THREE.Vector3(pp.x, 1.0, -pp.y), k);
+    } else {
+      const pp = player.pos, ep = enemy.pos;
+      const midX = (pp.x + ep.x) / 2, midY = (pp.y + ep.y) / 2;
+      const sep = Math.hypot(pp.x - ep.x, pp.y - ep.y);
+      const h = THREE.MathUtils.clamp(8 + sep * 1.1, 10.5, 16.5);
+      camPos.lerp(new THREE.Vector3(midX, h, -midY + h * 0.35), k);
+      camLook.lerp(new THREE.Vector3(midX, 0, -midY), k);
+    }
     camera.position.copy(camPos);
     camera.lookAt(camLook);
 
@@ -1012,4 +1109,8 @@ function start(models: Models) {
     camera.updateProjectionMatrix();
     renderer.setSize(window.innerWidth, window.innerHeight);
   });
+
+  // 進場:預設主畫面;戰鬥中重新整理則直接回到戰鬥
+  if (mode === 'menu') openMenu();
+  else startBattle();
 }
