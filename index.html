@@ -38,6 +38,13 @@
       position: fixed; top: 14px; left: 50%; transform: translateX(-50%);
       color: #ffd766; font-size: 18px; font-weight: 700; text-shadow: 0 1px 4px #000;
     }
+    #btn-sound {
+      position: fixed; top: 12px; left: 50%; transform: translateX(78px);
+      width: 34px; height: 30px; font-size: 16px; z-index: 55;
+      background: rgba(40,36,28,.85); border: 1px solid #6b5a3e; border-radius: 6px;
+      color: #ddd; cursor: pointer;
+    }
+    #btn-sound.muted { opacity: 0.55; }
     #shop {
       position: fixed; top: 60px; right: 16px; width: 340px; max-height: calc(100vh - 120px);
       overflow-y: auto; background: rgba(20, 18, 14, 0.96); border: 2px solid #6b5a3e;
@@ -153,6 +160,7 @@
   <div id="label-enemy"  class="hplabel">敵人(紅)</div>
   <div id="msg"></div>
   <div id="gold">💰 0</div>
+  <button id="btn-sound" title="聲音開關">🔊</button>
   <div id="shop">
     <h2>鐵匠鋪</h2>
     <div id="shop-items"></div>

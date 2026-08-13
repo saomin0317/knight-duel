@@ -180,6 +180,7 @@ const SFX_FILES: Record<string, string[]> = {
   click: ['metalClick'],
 };
 let audioCtx: AudioContext | null = null;
+let sfxMuted = localStorage.getItem('kd_muted') === '1';
 const sfxBuffers = new Map<string, AudioBuffer[]>();
 async function initAudio() {
   if (audioCtx) return;
@@ -193,7 +194,7 @@ async function initAudio() {
   }));
 }
 function playSfx(key: string, volume = 1, rate = 1) {
-  if (!audioCtx) return;
+  if (sfxMuted || !audioCtx) return;
   const bufs = sfxBuffers.get(key);
   if (!bufs?.length) return;
   const src = audioCtx.createBufferSource();
@@ -1094,6 +1095,20 @@ function start(models: Models) {
   });
   // 保險:略過開場畫面的重載也要能解鎖音效
   window.addEventListener('pointerdown', () => { initAudio(); }, { once: true });
+
+  // 聲音開關(狀態記在 localStorage)
+  const soundBtn = document.getElementById('btn-sound')!;
+  function renderSoundBtn() {
+    soundBtn.textContent = sfxMuted ? '🔇' : '🔊';
+    soundBtn.classList.toggle('muted', sfxMuted);
+  }
+  soundBtn.addEventListener('click', () => {
+    sfxMuted = !sfxMuted;
+    localStorage.setItem('kd_muted', sfxMuted ? '1' : '0');
+    renderSoundBtn();
+    if (!sfxMuted) { initAudio().then(() => playSfx('click', 0.6)); } // 開聲時回饋一聲
+  });
+  renderSoundBtn();
 
   document.getElementById('btn-fight')!.addEventListener('click', () => { playSfx('click', 0.6); startBattle(); });
   document.getElementById('btn-restart')!.addEventListener('click', () => { playSfx('click', 0.6); restart(); });
