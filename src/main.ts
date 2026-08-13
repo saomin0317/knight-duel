@@ -803,7 +803,9 @@ function start(models: Models) {
   const menuEl = document.getElementById('menu')!;
   const battleBtnsEl = document.getElementById('battle-btns')!;
   const oppLabelEl = document.getElementById('opp-label')!;
-  let mode: 'menu' | 'battle' = localStorage.getItem('kd_mode') === 'battle' ? 'battle' : 'menu';
+  // attract = 開場畫面背後的 AI 對 AI 循環表演賽
+  let mode: 'menu' | 'battle' | 'attract' = localStorage.getItem('kd_mode') === 'battle' ? 'battle' : 'menu';
+  if (!sessionStorage.getItem('kd_title_seen')) mode = 'attract';
   let menuTimer: number | undefined;
 
   function setEnemyVisible(v: boolean) {
@@ -859,6 +861,7 @@ function start(models: Models) {
     sessionStorage.setItem('kd_title_seen', '1');
     titleEl.style.display = 'none';
     initAudio().then(() => playSfx('clangHeavy', 0.6));
+    openMenu(); // 表演賽結束,進主畫面
   });
   // 保險:略過開場畫面的重載也要能解鎖音效
   window.addEventListener('pointerdown', () => { initAudio(); }, { once: true });
@@ -1009,7 +1012,7 @@ function start(models: Models) {
   // 斷肢/受擊提示(短暫顯示,不蓋過勝負訊息)
   let flashTimer: number | undefined;
   function flashMsg(text: string) {
-    if (gameOver) return;
+    if (gameOver || mode === 'attract') return;
     msgEl.textContent = text;
     msgEl.style.display = 'block';
     clearTimeout(flashTimer);
@@ -1065,6 +1068,12 @@ function start(models: Models) {
       gameOver = true;
       shatter(victim, impact);
       attacker.victoryPose();
+      if (mode === 'attract') {
+        // 表演賽:不發賞金不顯示訊息,歡呼完重打一場,無限循環
+        clearTimeout(menuTimer);
+        menuTimer = window.setTimeout(() => { if (mode === 'attract') restart(); }, 2400);
+        return;
+      }
       if (victim.isPlayer) {
         msgEl.textContent = '你被擊敗了…';
       } else {
@@ -1110,84 +1119,84 @@ function start(models: Models) {
     updateHpBars();
   }
 
-  // ---------- 簡單 AI(距離門檻跟著人物尺寸走) ----------
-  function updateAI(dt: number) {
-    const p = player.pos, e = enemy.pos;
+  // ---------- 簡單 AI(泛化:self 打 target,attract 模式兩邊都掛 AI) ----------
+  function updateAI(self: Knight, target: Knight, dt: number) {
+    const p = target.pos, e = self.pos;
     const dx = p.x - e.x, dy = p.y - e.y;
     const dist = Math.hypot(dx, dy);
     const targetAngle = Math.atan2(dy, dx);
-    const diff = wrapAngle(targetAngle - enemy.angle);
+    const diff = wrapAngle(targetAngle - self.angle);
 
     // 斷臂逃命:持劍手沒了打不了人,能逃多遠逃多遠
-    if (!enemy.swordArm.joint) {
+    if (!self.swordArm.joint) {
       const ux = -dx / dist, uy = -dy / dist;
-      enemy.rb.applyImpulse({ x: ux * CFG.moveForce * 1.2 * dt, y: uy * CFG.moveForce * 1.2 * dt }, true);
-      const w0 = enemy.rb.angvel();
-      enemy.turn(diff * 4 - w0 * 1.5, dt);
+      self.rb.applyImpulse({ x: ux * CFG.moveForce * 1.2 * dt, y: uy * CFG.moveForce * 1.2 * dt }, true);
+      const w0 = self.rb.angvel();
+      self.turn(diff * 4 - w0 * 1.5, dt);
       return;
     }
 
-    // 反陀螺:玩家的刀還在轉、或快要能轉(力竭尾聲體力回升)就退到掃不到的地方等
-    const playerSpinning = Math.abs(player.rb.angvel()) > 2.5 || (player.exhausted && player.stamina >= 45);
-    const spinReach = 0.49 + CFG.bladeStart + player.weapon.length + 0.5; // 玩家武器掃得到的半徑+安全邊
-    if (playerSpinning) {
-      const w = enemy.rb.angvel();
-      enemy.turn(diff * 6 - w * 1.5, dt); // 面向盯著
+    // 反陀螺:對手的刀還在轉、或快要能轉(力竭尾聲體力回升)就退到掃不到的地方等
+    const targetSpinning = Math.abs(target.rb.angvel()) > 2.5 || (target.exhausted && target.stamina >= 45);
+    const spinReach = 0.49 + CFG.bladeStart + target.weapon.length + 0.5;
+    if (targetSpinning) {
+      const w = self.rb.angvel();
+      self.turn(diff * 6 - w * 1.5, dt); // 面向盯著
       if (dist < spinReach) {
         // 直線遠離(不管面向);被牆擋住退不動就往側面滑
         const ux = -dx / dist, uy = -dy / dist;
-        enemy.rb.applyImpulse({ x: ux * CFG.moveForce * enemy.moveMult * dt, y: uy * CFG.moveForce * enemy.moveMult * dt }, true);
-        const lv2 = enemy.rb.linvel();
+        self.rb.applyImpulse({ x: ux * CFG.moveForce * self.moveMult * dt, y: uy * CFG.moveForce * self.moveMult * dt }, true);
+        const lv2 = self.rb.linvel();
         if (Math.hypot(lv2.x, lv2.y) < 0.3) {
           const side = Math.sin(clock * 2) > 0 ? 1 : -1; // 穩定的側向,不亂抖
-          enemy.rb.applyImpulse({ x: -uy * side * CFG.moveForce * dt, y: ux * side * CFG.moveForce * dt }, true);
+          self.rb.applyImpulse({ x: -uy * side * CFG.moveForce * dt, y: ux * side * CFG.moveForce * dt }, true);
         }
       }
       return; // 不出手也不進場,等
     }
 
-    // 懲罰模式:玩家力竭(刀也停了)→全速撲上去加倍出手;
+    // 懲罰模式:對手力竭(刀也停了)→全速撲上去加倍出手;
     // 體力回到 45 就提前撤(等刀真的轉起來才跑會被蹭到,物理上逃不掉)
-    if (player.exhausted && player.stamina < 45) {
-      const w = enemy.rb.angvel();
-      enemy.turn(diff * 8 - w * 1.5, dt);
+    if (target.exhausted && target.stamina < 45) {
+      const w = self.rb.angvel();
+      self.turn(diff * 8 - w * 1.5, dt);
       if (dist > 1.5) {
-        enemy.rb.applyImpulse({
-          x: (dx / dist) * CFG.moveForce * 1.5 * enemy.moveMult * dt,
-          y: (dy / dist) * CFG.moveForce * 1.5 * enemy.moveMult * dt,
+        self.rb.applyImpulse({
+          x: (dx / dist) * CFG.moveForce * 1.5 * self.moveMult * dt,
+          y: (dy / dist) * CFG.moveForce * 1.5 * self.moveMult * dt,
         }, true);
       }
-      enemy.swingTimer -= dt * 2;
-      if (enemy.swingTimer <= 0 && dist < 2.9 * S) {
-        enemy.swingDir *= -1;
-        enemy.rb.applyTorqueImpulse(enemy.swingDir * CFG.aiSwingImpulse * enemy.swingMult, true);
-        enemy.swingTimer = (1.1 + Math.random() * 0.8) / enemy.swingMult;
-        enemy.lastSwingAt = clock;
+      self.swingTimer -= dt * 2;
+      if (self.swingTimer <= 0 && dist < 2.9 * S) {
+        self.swingDir *= -1;
+        self.rb.applyTorqueImpulse(self.swingDir * CFG.aiSwingImpulse * self.swingMult, true);
+        self.swingTimer = (1.1 + Math.random() * 0.8) / self.swingMult;
+        self.lastSwingAt = clock;
       }
       return;
     }
 
-    enemy.swingTimer -= dt;
-    if (enemy.swingTimer <= 0 && dist < 2.8 * S) {
-      enemy.swingDir *= -1;
-      enemy.rb.applyTorqueImpulse(enemy.swingDir * CFG.aiSwingImpulse * enemy.swingMult * (enemy.exhausted ? 0.3 : 1), true);
-      enemy.swingTimer = (1.1 + Math.random() * 0.8) / enemy.swingMult;
-      enemy.lastSwingAt = clock;
-    } else if (clock - enemy.lastSwingAt > 0.5) {
-      const w = enemy.rb.angvel();
-      enemy.turn(diff * 6 - w * 1.5, dt);
+    self.swingTimer -= dt;
+    if (self.swingTimer <= 0 && dist < 2.8 * S) {
+      self.swingDir *= -1;
+      self.rb.applyTorqueImpulse(self.swingDir * CFG.aiSwingImpulse * self.swingMult * (self.exhausted ? 0.3 : 1), true);
+      self.swingTimer = (1.1 + Math.random() * 0.8) / self.swingMult;
+      self.lastSwingAt = clock;
+    } else if (clock - self.lastSwingAt > 0.5) {
+      const w = self.rb.angvel();
+      self.turn(diff * 6 - w * 1.5, dt);
     }
-    if (dist > 2.0 * S && Math.abs(diff) < 0.7) enemy.forward(CFG.moveForce * enemy.moveMult, dt);
-    else if (dist < 1.2 * S) enemy.forward(-CFG.moveForce * 0.6, dt);
+    if (dist > 2.0 * S && Math.abs(diff) < 0.7) self.forward(CFG.moveForce * self.moveMult, dt);
+    else if (dist < 1.2 * S) self.forward(-CFG.moveForce * 0.6, dt);
 
-    const lv = enemy.rb.linvel();
-    if (dist > 2.0 * S && Math.hypot(lv.x, lv.y) < 0.4) enemy.stuckTime += dt;
-    else enemy.stuckTime = 0;
-    if (enemy.stuckTime > 0.7) {
+    const lv = self.rb.linvel();
+    if (dist > 2.0 * S && Math.hypot(lv.x, lv.y) < 0.4) self.stuckTime += dt;
+    else self.stuckTime = 0;
+    if (self.stuckTime > 0.7) {
       const side = Math.random() < 0.5 ? 1 : -1;
-      const a2 = enemy.angle;
-      enemy.rb.applyImpulse({ x: -Math.sin(a2) * side * 1.5, y: Math.cos(a2) * side * 1.5 }, true);
-      enemy.stuckTime = 0;
+      const a2 = self.angle;
+      self.rb.applyImpulse({ x: -Math.sin(a2) * side * 1.5, y: Math.cos(a2) * side * 1.5 }, true);
+      self.stuckTime = 0;
     }
   }
 
@@ -1204,7 +1213,11 @@ function start(models: Models) {
       if (keys.has('arrowright') || keys.has('d')) player.turn(-CFG.turnTorque, dt);
       if (keys.has('arrowup') || keys.has('w')) player.forward(CFG.moveForce, dt);
       if (keys.has('arrowdown') || keys.has('s')) player.forward(-CFG.moveForce * 0.7, dt);
-      updateAI(dt);
+      updateAI(enemy, player, dt);
+    } else if (mode === 'attract' && !gameOver) {
+      // 開場表演賽:兩邊都是 AI
+      updateAI(enemy, player, dt);
+      updateAI(player, enemy, dt);
     } else if (mode === 'menu') {
       // 主畫面:左右鍵旋轉人物看造型
       if (keys.has('arrowleft') || keys.has('a')) player.rb.setRotation(player.angle + 2.4 * dt, true);
@@ -1269,7 +1282,11 @@ function start(models: Models) {
     renderer.setSize(window.innerWidth, window.innerHeight);
   });
 
-  // 進場:預設主畫面;戰鬥中重新整理則直接回到戰鬥
-  if (mode === 'menu') openMenu();
+  // 進場:首次=開場畫面+AI表演賽;之後照 kd_mode 回主畫面或戰鬥
+  if (mode === 'attract') {
+    battleBtnsEl.classList.add('hidden');
+    setEnemyVisible(true);
+    restart();
+  } else if (mode === 'menu') openMenu();
   else startBattle();
 }
