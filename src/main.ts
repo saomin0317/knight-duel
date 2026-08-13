@@ -12,8 +12,8 @@ const CFG = {
   bodyRadius: 0.45,     // 身體(圓)半徑
   swordLength: 1.6,     // 劍長
   swordDensity: 0.25,   // 劍的密度:越重甩起來慣性越大
-  dmgThreshold: 6.0,    // 劍尖相對速度低於這個只算「碰到」,不扣血
-  dmgScale: 4.0,        // 傷害 = (相對速度 - 門檻) * 這個
+  dmgThreshold: 4.5,    // 劍身接觸點相對速度低於這個只算「碰到」,不扣血
+  dmgScale: 4.5,        // 傷害 = (相對速度 - 門檻) * 這個
   hitCooldown: 0.35,    // 同一把劍對同一人連續判傷的最短間隔(秒)
   maxHp: 100,
   arenaHalf: 5.5,       // 場地半寬
@@ -71,7 +71,6 @@ function start() {
 
   // ---------- Rapier 物理世界(俯視角 → 沒有重力) ----------
   const world = new RAPIER.World({ x: 0, y: 0 });
-  const eventQueue = new RAPIER.EventQueue(true);
 
   // 四面牆
   const wallMat = new THREE.MeshStandardMaterial({ color: 0x2a2a30 });
@@ -88,10 +87,6 @@ function start() {
     scene.add(mesh);
   }
 
-  // collider handle → 誰的哪個部位
-  type Part = { knight: Knight; part: 'body' | 'sword' };
-  const colliderMap = new Map<number, Part>();
-
   // ---------- 武士 ----------
   class Knight {
     rb: RAPIER.RigidBody;
@@ -103,6 +98,12 @@ function start() {
     // AI 狀態
     swingTimer = 1.0;
     swingDir = 1;
+    lastSwingAt = -9;
+    stuckTime = 0;
+    // step 前的速度快照:撞擊瞬間解算器會把速度吸收掉,
+    // 判傷要用「進入碰撞前」的速度才抓得到衝擊力
+    preLv = { x: 0, y: 0 };
+    preW = 0;
 
     constructor(x: number, y: number, angle: number, color: number, public isPlayer: boolean) {
       this.spawn = { x, y, angle };
@@ -113,23 +114,17 @@ function start() {
           .setLinearDamping(CFG.linearDamping)
           .setAngularDamping(CFG.angularDamping)
       );
-      const bodyCol = world.createCollider(
-        RAPIER.ColliderDesc.ball(CFG.bodyRadius)
-          .setDensity(1.0)
-          .setRestitution(0.2)
-          .setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS),
+      world.createCollider(
+        RAPIER.ColliderDesc.ball(CFG.bodyRadius).setDensity(1.0).setRestitution(0.2),
         this.rb
       );
-      const swordCol = world.createCollider(
+      world.createCollider(
         RAPIER.ColliderDesc.cuboid(CFG.swordLength / 2, 0.04)
           .setTranslation(CFG.bodyRadius + CFG.swordLength / 2, 0)
           .setDensity(CFG.swordDensity)
-          .setRestitution(0.3)
-          .setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS),
+          .setRestitution(0.3),
         this.rb
       );
-      colliderMap.set(bodyCol.handle, { knight: this, part: 'body' });
-      colliderMap.set(swordCol.handle, { knight: this, part: 'sword' });
 
       // 灰盒外觀:圓柱身體 + 長方體劍 + 前方小塊標示臉的方向
       this.mesh = new THREE.Group();
@@ -154,17 +149,10 @@ function start() {
     get pos() { return this.rb.translation(); }
     get angle() { return this.rb.rotation(); }
 
-    // 劍尖的世界座標與速度(傷害 = 劍尖打到人時的相對速度)
-    tipWorld() {
-      const p = this.pos, a = this.angle;
-      const r = CFG.bodyRadius + CFG.swordLength;
-      return { x: p.x + Math.cos(a) * r, y: p.y + Math.sin(a) * r };
-    }
-    tipVelocity() {
-      const p = this.pos, tip = this.tipWorld();
-      const lv = this.rb.linvel(), w = this.rb.angvel();
-      const rx = tip.x - p.x, ry = tip.y - p.y;
-      return { x: lv.x - w * ry, y: lv.y + w * rx };
+    captureVel() {
+      const lv = this.rb.linvel();
+      this.preLv = { x: lv.x, y: lv.y };
+      this.preW = this.rb.angvel();
     }
 
     forward(force: number, dt: number) {
@@ -182,6 +170,8 @@ function start() {
       this.rb.setLinvel({ x: 0, y: 0 }, true);
       this.rb.setAngvel(0, true);
       this.swingTimer = 1.0;
+      this.lastSwingAt = -9;
+      this.stuckTime = 0;
     }
 
     sync(now: number) {
@@ -192,8 +182,11 @@ function start() {
     }
   }
 
+  // 出生點刻意不完全對稱:完全對稱會讓兩把劍「劍尖頂劍尖」形成穩定僵局
   const player = new Knight(-3, 0, 0, 0x4a90d9, true);
-  const enemy = new Knight(3, 0, Math.PI, 0xc0392b, false);
+  const enemy = new Knight(3, 0.8, Math.PI + 0.3, 0xc0392b, false);
+  // 開 console 可以直接看血量/位置、改 CFG 調手感
+  (window as unknown as Record<string, unknown>).__game = { player, enemy, CFG };
 
   // ---------- 噴血粒子(灰盒版:紅色小方塊) ----------
   const bloodGeo = new THREE.BoxGeometry(0.07, 0.07, 0.07);
@@ -225,29 +218,40 @@ function start() {
   }
 
   // ---------- 傷害判定 ----------
+  // 不用物理引擎的碰撞事件:兩人貼身時劍一直「接觸中」,揮劍不會產生新事件。
+  // 改成每一幀直接算「劍身線段 vs 身體圓」,有交疊再看接觸點的相對速度夠不夠快。
   let gameOver = false;
   let clock = 0;
   const lastHitAt = new Map<string, number>(); // "attacker->victim" → 時間
 
-  function onHit(attacker: Knight, victim: Knight) {
+  function swordHitCheck(attacker: Knight, victim: Knight) {
     if (gameOver) return;
+    const a = attacker.angle, p = attacker.pos, v = victim.pos;
+    const dirx = Math.cos(a), diry = Math.sin(a);
+    const bx = p.x + dirx * CFG.bodyRadius, by = p.y + diry * CFG.bodyRadius; // 劍根
+
+    // 受害者中心投影到劍身線段,找最近點
+    let t = (v.x - bx) * dirx + (v.y - by) * diry;
+    t = Math.max(0, Math.min(CFG.swordLength, t));
+    const cx = bx + dirx * t, cy = by + diry * t;
+    if (Math.hypot(v.x - cx, v.y - cy) > CFG.bodyRadius + 0.12) return; // 沒碰到
+
     const key = attacker.isPlayer ? 'p->e' : 'e->p';
     if (clock - (lastHitAt.get(key) ?? -9) < CFG.hitCooldown) return;
 
-    const tv = attacker.tipVelocity();
-    const vv = victim.rb.linvel();
-    const relSpeed = Math.hypot(tv.x - vv.x, tv.y - vv.y);
+    // 接觸點速度 = 平移速度 + 旋轉帶動(離身體越遠甩越快)
+    // 用 step 前的快照速度:撞擊當下解算器已把速度吃掉,事後讀是 0
+    const lv = attacker.preLv, w = attacker.preW;
+    const rx = cx - p.x, ry = cy - p.y;
+    const vv = victim.preLv;
+    const relSpeed = Math.hypot(lv.x - w * ry - vv.x, lv.y + w * rx - vv.y);
     const dmg = Math.max(0, relSpeed - CFG.dmgThreshold) * CFG.dmgScale;
     if (dmg <= 0) return; // 慢慢碰到:不痛,物理引擎自己會推開
 
     lastHitAt.set(key, clock);
     victim.hp = Math.max(0, victim.hp - dmg);
     victim.flashUntil = clock + 0.12;
-
-    // 出血點抓「劍尖與身體中心的中點」,灰盒夠用
-    const tip = attacker.tipWorld();
-    const vp = victim.pos;
-    spawnBlood(to3D({ x: (tip.x + vp.x) / 2, y: (tip.y + vp.y) / 2 }, 0.8), Math.min(30, Math.round(dmg * 1.5)));
+    spawnBlood(to3D({ x: cx, y: cy }, 0.8), Math.min(30, Math.round(dmg * 1.5)));
 
     hpFillPlayer.style.width = `${player.hp}%`;
     hpFillEnemy.style.width = `${enemy.hp}%`;
@@ -291,13 +295,25 @@ function start() {
       enemy.swingDir *= -1;
       enemy.rb.applyTorqueImpulse(enemy.swingDir * CFG.aiSwingImpulse, true);
       enemy.swingTimer = 1.1 + Math.random() * 0.8;
-    } else if (enemy.swingTimer > 0.5) {
-      // 非出手期:轉向瞄準玩家(P 控制器 + 角速度阻尼)
+      enemy.lastSwingAt = clock;
+    } else if (clock - enemy.lastSwingAt > 0.5) {
+      // 揮完 0.5 秒內不瞄準讓劍甩完,其餘時間持續瞄準玩家(P 控制器 + 角速度阻尼)
       const w = enemy.rb.angvel();
       enemy.turn(diff * 6 - w * 1.5, dt);
     }
     if (dist > 2.0 && Math.abs(diff) < 0.7) enemy.forward(CFG.moveForce, dt);
     else if (dist < 1.2) enemy.forward(-CFG.moveForce * 0.6, dt);
+
+    // 解僵局:想前進卻推不動(常見於劍尖頂劍尖對推)→往側面繞開
+    const lv = enemy.rb.linvel();
+    if (dist > 2.0 && Math.hypot(lv.x, lv.y) < 0.4) enemy.stuckTime += dt;
+    else enemy.stuckTime = 0;
+    if (enemy.stuckTime > 0.7) {
+      const side = Math.random() < 0.5 ? 1 : -1;
+      const a2 = enemy.angle;
+      enemy.rb.applyImpulse({ x: -Math.sin(a2) * side * 1.5, y: Math.cos(a2) * side * 1.5 }, true);
+      enemy.stuckTime = 0;
+    }
   }
 
   // ---------- 主迴圈 ----------
@@ -316,14 +332,11 @@ function start() {
       updateAI(dt);
     }
 
-    world.step(eventQueue);
-    eventQueue.drainCollisionEvents((h1: number, h2: number, started: boolean) => {
-      if (!started) return;
-      const a = colliderMap.get(h1), b = colliderMap.get(h2);
-      if (!a || !b || a.knight === b.knight) return;
-      if (a.part === 'sword' && b.part === 'body') onHit(a.knight, b.knight);
-      if (b.part === 'sword' && a.part === 'body') onHit(b.knight, a.knight);
-    });
+    player.captureVel();
+    enemy.captureVel();
+    world.step();
+    swordHitCheck(player, enemy);
+    swordHitCheck(enemy, player);
 
     player.sync(clock);
     enemy.sync(clock);
