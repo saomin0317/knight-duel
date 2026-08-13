@@ -42,27 +42,31 @@ const CFG = {
 };
 
 // ---------- 裝備定義:模型 + 物理參數 + 價格(每件都不同) ----------
-type WeaponDef = { model: string; label: string; length: number; density: number; dmgMult: number; price: number };
-type ShieldDef = { model: string; label: string; halfWidth: number; density: number; price: number };
+// 隱性相剋(刻意不在商店顯示,讓玩家自己發現):
+//   shieldBreak 破盾:打中盾把盾撞開的力道——斧系高(破龜守)、杖系低(戳盾會滑開)
+//   staminaMult 耗體:重武器揮舞更耗體力——重斧painful但容易力竭
+//   thorns 反傷:尖刺盾被打到會刺傷攻擊者
+type WeaponDef = { model: string; label: string; length: number; density: number; dmgMult: number; price: number; shieldBreak: number; staminaMult: number };
+type ShieldDef = { model: string; label: string; halfWidth: number; density: number; price: number; thorns?: number };
 const WEAPONS: Record<string, WeaponDef> = {
-  sword1h: { model: 'sword_1handed', label: '短劍', length: 1.15 * S, density: 0.18 / (S * S), dmgMult: 0.8, price: 0 },        // 起始裝備
-  axe1h: { model: 'axe_1handed', label: '單手斧', length: 1.1 * S, density: 0.35 / (S * S), dmgMult: 1.3, price: 120 },
-  staff: { model: 'staff', label: '長木杖', length: 1.7 * S, density: 0.2 / (S * S), dmgMult: 0.85, price: 150 },
-  skelBlade: { model: 'Skeleton_Blade', label: '骷髏彎刀', length: 1.3 * S, density: 0.28 / (S * S), dmgMult: 1.1, price: 200 },
-  skelStaff: { model: 'Skeleton_Staff', label: '骨杖', length: 1.8 * S, density: 0.24 / (S * S), dmgMult: 0.95, price: 240 },
-  sword2h: { model: 'sword_2handed', label: '雙手大劍', length: 1.6 * S, density: 0.25 / (S * S), dmgMult: 1.0, price: 260 },
-  skelAxe: { model: 'Skeleton_Axe', label: '骷髏斧', length: 1.25 * S, density: 0.42 / (S * S), dmgMult: 1.5, price: 300 },
-  axe2h: { model: 'axe_2handed', label: '雙手大斧', length: 1.35 * S, density: 0.5 / (S * S), dmgMult: 1.7, price: 380 },
+  sword1h: { model: 'sword_1handed', label: '短劍', length: 1.15 * S, density: 0.18 / (S * S), dmgMult: 0.8, price: 0, shieldBreak: 0.5, staminaMult: 0.85 },
+  axe1h: { model: 'axe_1handed', label: '單手斧', length: 1.1 * S, density: 0.35 / (S * S), dmgMult: 1.3, price: 120, shieldBreak: 1.1, staminaMult: 1.1 },
+  staff: { model: 'staff', label: '長木杖', length: 1.7 * S, density: 0.2 / (S * S), dmgMult: 0.85, price: 150, shieldBreak: 0.25, staminaMult: 0.9 },
+  skelBlade: { model: 'Skeleton_Blade', label: '骷髏彎刀', length: 1.3 * S, density: 0.28 / (S * S), dmgMult: 1.1, price: 200, shieldBreak: 0.7, staminaMult: 0.95 },
+  skelStaff: { model: 'Skeleton_Staff', label: '骨杖', length: 1.8 * S, density: 0.24 / (S * S), dmgMult: 0.95, price: 240, shieldBreak: 0.3, staminaMult: 0.95 },
+  sword2h: { model: 'sword_2handed', label: '雙手大劍', length: 1.6 * S, density: 0.25 / (S * S), dmgMult: 1.0, price: 260, shieldBreak: 0.8, staminaMult: 1.0 },
+  skelAxe: { model: 'Skeleton_Axe', label: '骷髏斧', length: 1.25 * S, density: 0.42 / (S * S), dmgMult: 1.5, price: 300, shieldBreak: 1.4, staminaMult: 1.25 },
+  axe2h: { model: 'axe_2handed', label: '雙手大斧', length: 1.35 * S, density: 0.5 / (S * S), dmgMult: 1.7, price: 380, shieldBreak: 1.7, staminaMult: 1.35 },
 };
 const SHIELDS: Record<string, ShieldDef> = {
-  badge: { model: 'shield_badge', label: '徽章小盾', halfWidth: 0.34 * S, density: 0.4 / (S * S), price: 0 },                    // 起始裝備
+  badge: { model: 'shield_badge', label: '徽章小盾', halfWidth: 0.34 * S, density: 0.4 / (S * S), price: 0 },
   skelSmallA: { model: 'Skeleton_Shield_Small_A', label: '骨片小盾', halfWidth: 0.36 * S, density: 0.45 / (S * S), price: 80 },
   skelSmallB: { model: 'Skeleton_Shield_Small_B', label: '裂骨小盾', halfWidth: 0.38 * S, density: 0.42 / (S * S), price: 90 },
   round: { model: 'shield_round', label: '圓盾', halfWidth: 0.46 * S, density: 0.5 / (S * S), price: 120 },
   square: { model: 'shield_square', label: '方盾', halfWidth: 0.42 * S, density: 0.55 / (S * S), price: 160 },
   skelLargeA: { model: 'Skeleton_Shield_Large_A', label: '骨牆大盾', halfWidth: 0.48 * S, density: 0.6 / (S * S), price: 200 },
   skelLargeB: { model: 'Skeleton_Shield_Large_B', label: '骸骨大盾', halfWidth: 0.5 * S, density: 0.58 / (S * S), price: 220 },
-  spikes: { model: 'shield_spikes', label: '尖刺盾', halfWidth: 0.43 * S, density: 0.65 / (S * S), price: 240 },
+  spikes: { model: 'shield_spikes', label: '尖刺盾', halfWidth: 0.43 * S, density: 0.65 / (S * S), price: 240, thorns: 9 },
 };
 
 // ---------- AI 個性:六種進攻策略 ----------
@@ -423,6 +427,9 @@ function start(models: Models) {
   const eventQueue = new RAPIER.EventQueue(true);
   const armColHandles = new Set<number>();
   const wallColHandles = new Set<number>();
+  // 碰撞體細分:破盾/反傷判定要知道打到的是刃還是盾面
+  type ColKind = 'arm' | 'blade' | 'shield';
+  const colInfo = new Map<number, { knight: Knight; kind: ColKind }>();
 
   // ---------- 場地產生器:N 邊形圍牆(圓=40邊) ----------
   const arenaObjs: { bodies: RAPIER.RigidBody[]; meshes: THREE.Object3D[] } = { bodies: [], meshes: [] };
@@ -640,6 +647,8 @@ function start(models: Models) {
         ),
       ];
       for (const c of armCols) armColHandles.add(c.handle);
+      const kinds: ColKind[] = ['arm', 'blade', 'arm', 'shield'];
+      armCols.forEach((c, i) => colInfo.set(c.handle, { knight: this, kind: kinds[i] }));
 
       // ----- 角色模型 -----
       this.mesh = new THREE.Group();
@@ -798,10 +807,11 @@ function start(models: Models) {
     }
 
     // 體力:高速旋轉燒,低速回;燒完力竭到回滿門檻才解除
+    // 重武器耗體更兇(staminaMult):大斧痛但容易力竭,輕劍打持久戰
     updateStamina(dt: number) {
       const w = this.rb.angvel();
       const aw = Math.abs(w);
-      if (aw > CFG.spinThreshold) this.stamina -= (aw - CFG.spinThreshold) * CFG.staminaDrain * dt;
+      if (aw > CFG.spinThreshold) this.stamina -= (aw - CFG.spinThreshold) * CFG.staminaDrain * this.weapon.staminaMult * dt;
       else this.stamina += CFG.staminaRegen * dt;
       this.stamina = THREE.MathUtils.clamp(this.stamina, 0, CFG.staminaMax);
       if (this.stamina <= 0) this.exhausted = true;
@@ -1338,7 +1348,39 @@ function start(models: Models) {
       }
     }
 
-    if (victim.hp <= 0) {
+    if (victim.hp <= 0) handleVictory(attacker, victim, impact);
+  }
+
+  // 破盾與反傷:刃打中盾面時觸發(隱性相剋,遊戲內不提示)
+  const lastShieldHitAt = new Map<number, number>();
+  function handleShieldHit(attacker: Knight, defender: Knight) {
+    if (gameOver) return;
+    if (clock - (lastShieldHitAt.get(attacker.index) ?? -9) < 0.25) return;
+    lastShieldHitAt.set(attacker.index, clock);
+    // 破盾:順著揮擊方向把盾撞開——斧系把龜殼掀出破綻,杖戳盾則幾乎滑開
+    if (defender.shieldArm.joint) {
+      const speed = Math.min(1.5, Math.abs(attacker.weaponPreW) / 6 + 0.3);
+      defender.shieldArm.rb.applyTorqueImpulse(
+        Math.sign(attacker.weaponPreW || 1) * attacker.weapon.shieldBreak * speed * 0.6, true
+      );
+      if (attacker.weapon.shieldBreak >= 1.2 && Math.abs(attacker.weaponPreW) > 4) playSfx('clangHeavy', 0.55);
+    }
+    // 反傷:尖刺盾刺傷攻擊者
+    const thorns = defender.shield.thorns ?? 0;
+    if (thorns > 0 && attacker.hp > 0) {
+      attacker.hp = Math.max(0, attacker.hp - thorns);
+      attacker.flashUntil = clock + 0.1;
+      const sp = defender.shieldArm.rb.translation();
+      spawnBlood(to3D({ x: sp.x, y: sp.y }, 0.9 * S), 8);
+      playSfx('flesh', 0.4, 1.15);
+      updateHpBars();
+      if (attacker.hp <= 0) handleVictory(defender, attacker, { x: 0.5, y: 0.5 });
+    }
+  }
+
+  // 勝負處理(劍殺與尖刺盾反傷致死共用)
+  function handleVictory(attacker: Knight, victim: Knight, impact: { x: number; y: number }) {
+    {
       gameOver = true;
       shatter(victim, impact);
       attacker.victoryPose();
@@ -1576,13 +1618,18 @@ function start(models: Models) {
     player.captureVel();
     enemy.captureVel();
     world.step(eventQueue);
-    // 金屬碰撞聲:武器/盾互撞=鏗鏘,打到牆=悶一點
+    // 碰撞事件:金屬碰撞聲 + 破盾/反傷(判傷本體仍是幾何判定)
     eventQueue.drainCollisionEvents((h1: number, h2: number, started: boolean) => {
-      if (!started || clock - lastClangAt < 0.09) return;
-      const bothArms = armColHandles.has(h1) && armColHandles.has(h2);
-      const armWall = (armColHandles.has(h1) && wallColHandles.has(h2)) || (wallColHandles.has(h1) && armColHandles.has(h2));
-      if (bothArms) { lastClangAt = clock; playSfx('clang', 0.5); }
-      else if (armWall) { lastClangAt = clock; playSfx('clang', 0.25, 0.7); }
+      if (!started) return;
+      const a = colInfo.get(h1), b = colInfo.get(h2);
+      if (a && b && a.knight !== b.knight) {
+        // 刃打到盾面 → 破盾撞擊 + 尖刺反傷
+        if (a.kind === 'blade' && b.kind === 'shield') handleShieldHit(a.knight, b.knight);
+        else if (b.kind === 'blade' && a.kind === 'shield') handleShieldHit(b.knight, a.knight);
+        if (clock - lastClangAt > 0.09) { lastClangAt = clock; playSfx('clang', 0.5); }
+      } else if ((a && wallColHandles.has(h2)) || (b && wallColHandles.has(h1))) {
+        if (clock - lastClangAt > 0.09) { lastClangAt = clock; playSfx('clang', 0.25, 0.7); }
+      }
     });
     swordHitCheck(player, enemy);
     swordHitCheck(enemy, player);
