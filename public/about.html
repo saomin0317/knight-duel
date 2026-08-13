@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>關於本遊戲 — 武士圓舞曲 Knight's Waltz</title>
+<style>
+  :root{--bg:#14110d;--surface:#1f1b15;--border:#3a3024;--ink:#f2ead9;--dim:#b6a98d;--muted:#8a7d64;--gold:#e7b73c}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);line-height:1.8;font-size:15px;
+    font-family:-apple-system,"PingFang TC","Noto Sans TC","Microsoft JhengHei",sans-serif}
+  .wrap{max-width:760px;margin:0 auto;padding:40px 22px 80px}
+  h1{font-size:26px;margin:0 0 4px;font-weight:900}
+  .meta{color:var(--muted);font-size:13px;margin-bottom:28px}
+  h2{font-size:18px;margin:34px 0 8px;font-weight:800;border-left:4px solid var(--gold);padding-left:12px}
+  p,li{color:var(--dim)}
+  p{margin:8px 0}
+  ul{margin:8px 0;padding-left:22px}
+  li{margin:5px 0}
+  b{color:var(--ink)}
+  a{color:var(--gold);text-decoration:none}
+  .box{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px 20px;margin:18px 0}
+  footer{margin-top:40px;padding-top:20px;border-top:1px solid var(--border);color:var(--muted);font-size:13px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>關於「武士圓舞曲」</h1>
+  <div class="meta">Knight's Waltz · 薩摩創意有限公司</div>
+
+  <h2>緣起</h2>
+  <p>這個專案一開始只是想試試看:現在的網頁 3D(Three.js + WebAssembly 物理引擎)到底能做到什麼程度。</p>
+  <p>做著做著想起很久以前 <b>Apple II 時代</b>玩過的一款俯視角武士決鬥遊戲——左右鍵旋轉身體甩劍、上下鍵前後移動,傷害來自揮劍的速度,名字已經不可考。就用現代的網頁技術把記憶中的手感重現出來,然後往上加了物理手臂與盾牌格擋、裝備商店、關卡階梯、體力系統和斷肢。</p>
+  <div class="box">武器不是播動畫,是<b>真的物理</b>:劍有重量、旋轉有慣性、砍中的傷害由劍刃接觸點的相對速度決定,格擋是盾牌實體把劍彈開。</div>
+
+  <h2>操作</h2>
+  <ul>
+    <li><b>← →</b> 旋轉身體甩劍——轉越快砍越痛,慢慢碰到不會痛</li>
+    <li><b>↑ ↓</b> 前進後退</li>
+    <li>轉太久會<b>力竭</b>(注意黃色體力條),力竭時會被對手撲上來痛打</li>
+    <li>重擊有機率<b>砍斷對方的手臂</b>;打贏拿賞金,到鐵匠鋪買更強的裝備,一關一關往上打</li>
+  </ul>
+
+  <h2>素材授權</h2>
+  <ul>
+    <li>角色 / 武器 / 盾牌 3D 模型:<a href="https://kaylousberg.itch.io/" target="_blank" rel="noopener">KayKit</a>(Character Pack: Adventurers、Skeletons,Kay Lousberg 製作,<b>CC0</b>)</li>
+    <li>音效:<a href="https://kenney.nl" target="_blank" rel="noopener">Kenney</a>(Impact Sounds、RPG Audio,<b>CC0</b>)</li>
+  </ul>
+  <p>CC0 素材免費商用、無需署名,此處仍列出以示感謝。</p>
+
+  <h2>版權</h2>
+  <p>遊戲設計與程式 © <a href="https://satsumacreative.tw" target="_blank" rel="noopener">薩摩創意 Satsuma Creative</a></p>
+
+  <footer>
+    © 2026 薩摩創意有限公司 · <a href="terms.html">服務條款</a> · <a href="privacy.html">隱私權政策</a> · <a href="./">回到遊戲</a>
+  </footer>
+</div>
+</body>
+</html>

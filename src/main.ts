@@ -82,10 +82,10 @@ const ENEMY_ROSTER: Foe[] = [
 ];
 
 // ---------- 存檔:金幣 / 擁有 / 裝備中 / 戰績 ----------
-type Save = { gold: number; ownedW: string[]; ownedS: string[]; eqW: string; eqS: string; wins: number; losses: number };
+type Save = { gold: number; ownedW: string[]; ownedS: string[]; eqW: string; eqS: string; wins: number; losses: number; maxLevel: number };
 // 統一正規化:欄位順序固定,雲端/本地存檔比對才不會因缺欄位或順序而誤判不同
 function normalizeSave(raw: unknown): Save {
-  const def: Save = { gold: 0, ownedW: ['sword1h'], ownedS: ['badge'], eqW: 'sword1h', eqS: 'badge', wins: 0, losses: 0 };
+  const def: Save = { gold: 0, ownedW: ['sword1h'], ownedS: ['badge'], eqW: 'sword1h', eqS: 'badge', wins: 0, losses: 0, maxLevel: 0 };
   if (!raw || typeof raw !== 'object') return def;
   const s = raw as Partial<Save>;
   return {
@@ -96,6 +96,7 @@ function normalizeSave(raw: unknown): Save {
     eqS: s.eqS && SHIELDS[s.eqS] ? s.eqS : def.eqS,
     wins: Math.max(0, Number(s.wins) || 0),
     losses: Math.max(0, Number(s.losses) || 0),
+    maxLevel: Math.min(Math.max(0, Number(s.maxLevel) || 0), ENEMY_ROSTER.length - 1),
   };
 }
 function loadSave(): Save {
@@ -118,6 +119,14 @@ function persistSave() {
   localStorage.setItem('kd_save', JSON.stringify(SAVE));
   scheduleCloudPush();
 }
+// 會觸發 reload 的變更(換裝/過關)必須「先推上雲再 reload」——
+// debounce 推送會被 reload 殺掉,reload 回來雲端舊檔就把變更蓋掉了
+async function reloadWithCloudSync(setup: () => void) {
+  setup();
+  clearTimeout(cloudPushTimer);
+  try { if (currentUser) await cloudSave(currentUser, SAVE); } catch { /* 離線就只靠本機 */ }
+  location.reload();
+}
 
 // ---------- 場地形狀(按 1-4 切換,記住選擇) ----------
 // r = 外接圓半徑。挑法:垂直方向邊距(apothem)都 ≥5.5,
@@ -130,8 +139,6 @@ const ARENA_SHAPES: Record<string, { n: number; offset: number; r: number; label
   hex: { n: 6, offset: 0, r: 7.5, label: '六角' },
   oct: { n: 8, offset: Math.PI / 8, r: 7.2, label: '八角' },
 };
-const SHAPE_KEYS: Record<string, string> = { '1': 'circle', '2': 'square', '3': 'hex', '4': 'oct' };
-
 // ---------- 音效(Kenney CC0):同類多檔隨機 + 音高抖動,避免機關槍感 ----------
 const SFX_FILES: Record<string, string[]> = {
   clang: ['impactMetal_medium_000', 'impactMetal_medium_001', 'impactMetal_medium_002', 'impactMetal_medium_003', 'impactMetal_medium_004'],
@@ -300,7 +307,8 @@ async function bootInner() {
     ...Object.values(WEAPONS).map((w) => w.model),
     ...Object.values(SHIELDS).map((s) => s.model),
   ])];
-  const foeIdx = (parseInt(localStorage.getItem('enemyIdx') ?? '0', 10) || 0) % ENEMY_ROSTER.length;
+  // 關卡制:只能打到已解鎖的最高關
+  const foeIdx = Math.min((parseInt(localStorage.getItem('enemyIdx') ?? '0', 10) || 0), SAVE.maxLevel);
   const charKeys = [...new Set(['knight', ENEMY_ROSTER[foeIdx].char])];
   const loaded = await Promise.all([
     ...charKeys.map((k) => loader.loadAsync(`models/${CHAR_FILES[k]}`)),
@@ -361,8 +369,12 @@ function start(models: Models) {
 
   // ---------- 場地產生器:N 邊形圍牆(圓=40邊) ----------
   const arenaObjs: { bodies: RAPIER.RigidBody[]; meshes: THREE.Object3D[] } = { bodies: [], meshes: [] };
-  let arenaShape = localStorage.getItem('arenaShape') ?? 'square';
-  if (!ARENA_SHAPES[arenaShape]) arenaShape = 'square';
+  // 場地隨機,不開放選擇
+  const randomShape = () => {
+    const keys = Object.keys(ARENA_SHAPES);
+    return keys[Math.floor(Math.random() * keys.length)];
+  };
+  let arenaShape = randomShape();
 
   function buildArena(key: string) {
     for (const b of arenaObjs.bodies) world.removeRigidBody(b);
@@ -395,7 +407,6 @@ function start(models: Models) {
       scene.add(mesh);
       arenaObjs.meshes.push(mesh);
     }
-    localStorage.setItem('arenaShape', key);
   }
   buildArena(arenaShape);
 
@@ -733,7 +744,8 @@ function start(models: Models) {
 
   // 出生點刻意不完全對稱:完全對稱會讓兩把武器「刃尖頂刃尖」形成穩定僵局
   // 出生點:離牆 > 武器觸及(~3.05) > 離對手身體,出生原地空揮才不卡牆也砍不到人
-  const enemyIdx = (parseInt(localStorage.getItem('enemyIdx') ?? '0', 10) || 0) % ENEMY_ROSTER.length;
+  // 與 boot 端同一套鉗制:只能打到已解鎖的最高關(兩邊不一致會載錯角色模型)
+  const enemyIdx = Math.min((parseInt(localStorage.getItem('enemyIdx') ?? '0', 10) || 0), SAVE.maxLevel);
   const foe = ENEMY_ROSTER[enemyIdx];
   const player = new Knight(-2.6, 0, 0, 0x5588ff, 0, true, models.chars.knight, SAVE.eqW, SAVE.eqS);
   const enemy = new Knight(2.6, 0.8, Math.PI + 0.3, foe.tint, 1, false, models.chars[foe.char], foe.weapon, foe.shield, foe);
@@ -788,8 +800,8 @@ function start(models: Models) {
         } else if ((isW ? SAVE.eqW : SAVE.eqS) !== k) {
           if (isW) SAVE.eqW = k; else SAVE.eqS = k;
           persistSave();
-          localStorage.setItem('kd_mode', 'menu'); // 換裝後回主畫面看造型
-          location.reload(); // 裝備綁在建構期(碰撞體+模型),重載最乾淨
+          // 裝備綁在建構期(碰撞體+模型),重載最乾淨;先推雲防止舊檔蓋回來
+          void reloadWithCloudSync(() => localStorage.setItem('kd_mode', 'menu'));
         }
       });
     });
@@ -846,10 +858,14 @@ function start(models: Models) {
     enemy.shieldArm.group.visible = v;
   }
   function updateMenuUI() {
-    oppLabelEl.textContent = `${foe.label}|血量 x${foe.hpMult}|賞金 ${foe.reward}`;
-    document.querySelectorAll<HTMLButtonElement>('#arena-select button').forEach((b) => {
-      b.classList.toggle('cur', b.dataset.shape === arenaShape);
-    });
+    oppLabelEl.textContent = `第 ${enemyIdx + 1} 關|${foe.label}|血量 x${foe.hpMult}|賞金 ${foe.reward}`;
+    const prev = document.getElementById('opp-prev') as HTMLButtonElement;
+    const next = document.getElementById('opp-next') as HTMLButtonElement;
+    prev.disabled = enemyIdx <= 0;
+    next.disabled = enemyIdx >= SAVE.maxLevel; // 沒打贏這關,後面鎖住
+    next.textContent = enemyIdx >= SAVE.maxLevel && enemyIdx < ENEMY_ROSTER.length - 1 ? '🔒' : '▶';
+    prev.style.opacity = prev.disabled ? '0.3' : '1';
+    next.style.opacity = next.disabled ? '0.5' : '1';
   }
   function openMenu() {
     mode = 'menu';
@@ -868,10 +884,15 @@ function start(models: Models) {
     battleBtnsEl.classList.remove('hidden');
     toggleShop(false);
     setEnemyVisible(true);
+    arenaShape = randomShape(); // 每場隨機場地
+    buildArena(arenaShape);
     restart();
   }
   function setOpp(delta: number) {
-    localStorage.setItem('enemyIdx', String((enemyIdx + delta + ENEMY_ROSTER.length) % ENEMY_ROSTER.length));
+    // 只能在已解鎖範圍內切換
+    const target = Math.min(Math.max(enemyIdx + delta, 0), SAVE.maxLevel);
+    if (target === enemyIdx) return;
+    localStorage.setItem('enemyIdx', String(target));
     localStorage.setItem('kd_mode', 'menu');
     location.reload(); // 角色 GLB 只載本場需要的,換對手要重載
   }
@@ -950,16 +971,7 @@ function start(models: Models) {
   document.getElementById('btn-menu')!.addEventListener('click', () => { playSfx('click', 0.6); openMenu(); });
   document.getElementById('opp-prev')!.addEventListener('click', () => setOpp(-1));
   document.getElementById('opp-next')!.addEventListener('click', () => setOpp(1));
-  document.querySelectorAll<HTMLButtonElement>('#arena-select button').forEach((b) => {
-    b.addEventListener('click', () => {
-      arenaShape = b.dataset.shape!;
-      buildArena(arenaShape);
-      restart();
-      if (mode === 'menu') setEnemyVisible(false);
-      updateMenuUI();
-    });
-  });
-  (window as unknown as Record<string, unknown>).__game = { player, enemy, CFG, WEAPONS, SHIELDS };
+  (window as unknown as Record<string, unknown>).__game = { player, enemy, CFG, WEAPONS, SHIELDS, SAVE, persistSave, reloadWithCloudSync };
 
   // ---------- 噴血粒子 ----------
   const bloodGeo = new THREE.BoxGeometry(0.07, 0.07, 0.07);
@@ -1147,11 +1159,14 @@ function start(models: Models) {
       shatter(victim, impact);
       attacker.victoryPose();
       if (mode === 'attract') {
-        // 表演賽:不發賞金不顯示訊息,歡呼完重打一場,無限循環
+        // 表演賽:不發賞金不顯示訊息,歡呼完換個場地重打一場,無限循環
         clearTimeout(menuTimer);
-        menuTimer = window.setTimeout(() => { if (mode === 'attract') restart(); }, 2400);
+        menuTimer = window.setTimeout(() => {
+          if (mode === 'attract') { arenaShape = randomShape(); buildArena(arenaShape); restart(); }
+        }, 2400);
         return;
       }
+      let advanceToNext = false;
       if (victim.isPlayer) {
         SAVE.losses += 1;
         persistSave();
@@ -1159,16 +1174,31 @@ function start(models: Models) {
       } else {
         SAVE.gold += foe.reward;
         SAVE.wins += 1;
+        // 打贏當前最高關 → 解鎖下一關並自動前往
+        if (enemyIdx === SAVE.maxLevel && enemyIdx < ENEMY_ROSTER.length - 1) {
+          SAVE.maxLevel = enemyIdx + 1;
+          advanceToNext = true;
+          msgEl.textContent = `你贏了!+${foe.reward} 金幣|解鎖第 ${enemyIdx + 2} 關:${ENEMY_ROSTER[enemyIdx + 1].label}`;
+        } else {
+          msgEl.textContent = `你贏了!+${foe.reward} 金幣`;
+        }
         persistSave();
         updateGold();
-        msgEl.textContent = `你贏了!+${foe.reward} 金幣`;
         setTimeout(() => playSfx('coins', 0.9), 500);
       }
       renderAccount();
       msgEl.style.display = 'block';
-      // 讓殘骸飛一下,自動回主畫面
+      // 讓殘骸飛一下;解鎖新關卡→直接前往下一關的主畫面,否則回主畫面
       clearTimeout(menuTimer);
-      menuTimer = window.setTimeout(() => { if (gameOver) openMenu(); }, 2800);
+      menuTimer = window.setTimeout(() => {
+        if (!gameOver) return;
+        if (advanceToNext) {
+          void reloadWithCloudSync(() => {
+            localStorage.setItem('enemyIdx', String(SAVE.maxLevel));
+            localStorage.setItem('kd_mode', 'menu');
+          });
+        } else openMenu();
+      }, 2800);
     }
   }
 
@@ -1182,13 +1212,6 @@ function start(models: Models) {
     if (k === 'b') toggleShop();
     if (k === 'n') setOpp(1);
     if (k === 'escape' && mode === 'battle') openMenu();
-    if (SHAPE_KEYS[k]) {
-      arenaShape = SHAPE_KEYS[k];
-      buildArena(arenaShape);
-      restart(); // 換場地把人拉回出生點,避免卡在新牆外
-      if (mode === 'menu') setEnemyVisible(false);
-      updateMenuUI();
-    }
   });
   window.addEventListener('keyup', (e) => keys.delete(e.key.toLowerCase()));
 

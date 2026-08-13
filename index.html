@@ -131,6 +131,12 @@
     #loading .ld-name { font-size: 34px; font-weight: 800; color: #ffd766; letter-spacing: 3px; }
     #loading .ld-text { font-size: 14px; color: #998; animation: ldpulse 1.2s ease-in-out infinite; }
     @keyframes ldpulse { 0%, 100% { opacity: 0.35; } 50% { opacity: 1; } }
+    #ts-links {
+      position: fixed; bottom: 86px; left: 50%; transform: translateX(-50%);
+      font-size: 13px; color: #776;
+    }
+    #ts-links a { color: #a99; text-decoration: none; margin: 0 8px; }
+    #ts-links a:hover { color: #ffd766; }
     #ts-rating {
       position: fixed; bottom: 18px; display: flex; align-items: center; gap: 10px;
       left: 50%; transform: translateX(-50%);
@@ -160,6 +166,9 @@
     <div id="ts-name">⚔ 武士圓舞曲</div>
     <div id="ts-sub">Knight's Waltz・俯視角物理決鬥</div>
     <button id="btn-start">進入遊戲</button>
+    <div id="ts-links">
+      <a href="about.html" target="_blank" rel="noopener">關於本遊戲</a>|<a href="terms.html" target="_blank" rel="noopener">服務條款</a>|<a href="privacy.html" target="_blank" rel="noopener">隱私權政策</a>
+    </div>
     <!-- 遊戲分級標章(官方標準圖,遊戲軟體分級管理辦法:宣傳/使用頁面須標示) -->
     <div id="ts-rating">
       <img src="rating_15.png" alt="輔導十五歲級" style="height:52px">
@@ -190,10 +199,6 @@
     </div>
     <div id="menu-bottom">
       <div id="opp-select"><button id="opp-prev">◀</button><span id="opp-label"></span><button id="opp-next">▶</button></div>
-      <div id="arena-select">場地:
-        <button data-shape="circle">圓</button><button data-shape="square">方</button>
-        <button data-shape="hex">六角</button><button data-shape="oct">八角</button>
-      </div>
       <button id="btn-fight">⚔ 開始戰鬥</button>
     </div>
   </div>
