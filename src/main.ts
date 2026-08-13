@@ -6,55 +6,60 @@ import RAPIER from '@dimforge/rapier2d-compat';
 // ============================================================
 // 可調參數 — 手感全在這裡,調完存檔瀏覽器會自動重載
 // ============================================================
+// S = 人物整體縮放(視覺+物理一起放大,判定框才對得上畫面)。
+// 質量用密度 1/S² 補償維持不變;慣性仍 ×S²,所以力矩/肌肉勁度 ×S² 補償。
+const S = 1.3;
 const CFG = {
-  turnTorque: 2.6,      // 左右鍵旋轉力道(甩劍的力量來源)
-  angularDamping: 2.2,  // 旋轉阻尼:越大越鈍重、極速越低
-  moveForce: 5.0,       // 前後移動力道
-  linearDamping: 3.5,   // 移動阻尼
-  bodyRadius: 0.45,     // 身體(圓)半徑
-  shoulder: 0.36,       // 肩關節在身體側面的偏移(左右對稱)
-  bladeStart: 0.5,      // 刃部起點(距離肩關節,中間是手臂+握把)
-  jointLimit: 1.0,      // 武器臂關節可擺角度(±弧度)
-  shieldLimit: 0.7,     // 盾臂關節可擺角度(±弧度,盾要穩)
-  armStiffness: 3.0,    // 「肌肉」把手臂拉回正前方的彈簧勁度
-  armDamping: 0.4,      // 肌肉彈簧的阻尼
-  weaponDamping: 0.6,   // 手臂剛體本身的阻尼(低=甩起來很野)
-  dmgThreshold: 4.5,    // 刃部接觸點相對速度低於這個只算「碰到」,不扣血
-  dmgScale: 4.5,        // 傷害 = (相對速度 - 門檻) * 這個 * 武器倍率
-  hitCooldown: 0.35,    // 同一把武器對同一人連續判傷的最短間隔(秒)
+  turnTorque: 3.5 * S * S,   // 左右鍵旋轉力道(放大後手臂遠端拖曳變重,多補一點)
+  angularDamping: 2.2,
+  moveForce: 5.0,            // 質量沒變,推力不用補
+  linearDamping: 3.5,
+  bodyRadius: 0.45 * S,
+  shoulder: 0.36 * S,        // 肩關節側偏
+  bladeStart: 0.5,           // 刃部起點(距離肩關節)。刻意不隨 S 放大:
+                             // 總觸及要壓在 ~3.0,出生點才能同時離牆、離對手都夠遠
+  jointLimit: 1.0,
+  shieldLimit: 0.7,
+  armStiffness: 3.0 * S * S, // 肌肉彈簧勁度
+  armDamping: 0.4,
+  weaponDamping: 0.6,
+  dmgThreshold: 4.5 * S,     // 尺寸變大甩速線性變快,門檻同步放大
+  dmgScale: 4.5,
+  hitCooldown: 0.35,
   maxHp: 250,
-  arenaHalf: 5.5,       // 場地半寬
-  aiSwingImpulse: 1.0,  // AI 揮武器的瞬間力道
-  charHeight: 1.35,     // 角色模型縮放後的身高
+  aiSwingImpulse: 1.0 * S * S,
+  charHeight: 1.35 * S,      // 角色模型身高
 };
 
 // ---------- 裝備定義:模型 + 物理參數(商店系統的地基) ----------
-type WeaponDef = {
-  model: string;   // public/models/ 檔名
-  length: number;  // 刃部長度(物理判定)
-  density: number; // 密度:重武器慣性大、甩得慢
-  dmgMult: number; // 傷害倍率:重武器打到更痛
-};
-type ShieldDef = {
-  model: string;
-  halfWidth: number; // 盾面半寬(物理)
-  density: number;
-};
+type WeaponDef = { model: string; length: number; density: number; dmgMult: number };
+type ShieldDef = { model: string; halfWidth: number; density: number };
 const WEAPONS: Record<string, WeaponDef> = {
-  sword2h: { model: 'sword_2handed', length: 1.6, density: 0.25, dmgMult: 1.0 },  // 大劍:長、快
-  axe2h: { model: 'axe_2handed', length: 1.35, density: 0.5, dmgMult: 1.7 },      // 大斧:短、慢、痛
+  sword2h: { model: 'sword_2handed', length: 1.6 * S, density: 0.25 / (S * S), dmgMult: 1.0 },
+  axe2h: { model: 'axe_2handed', length: 1.35 * S, density: 0.5 / (S * S), dmgMult: 1.7 },
 };
 const SHIELDS: Record<string, ShieldDef> = {
-  round: { model: 'shield_round', halfWidth: 0.46, density: 0.5 },
-  spikes: { model: 'shield_spikes', halfWidth: 0.43, density: 0.65 },
+  round: { model: 'shield_round', halfWidth: 0.46 * S, density: 0.5 / (S * S) },
+  spikes: { model: 'shield_spikes', halfWidth: 0.43 * S, density: 0.65 / (S * S) },
 };
+
+// ---------- 場地形狀(按 1-4 切換,記住選擇) ----------
+// r = 外接圓半徑。挑法:垂直方向邊距(apothem)都 ≥5.5,
+// 出生點(±2.2)到牆的餘裕(3.3)才會大於武器總觸及(~3.2),
+// 出生原地空揮不卡牆;同時塞得進鏡頭(垂直半視野 ~6)。
+const ARENA_SHAPES: Record<string, { n: number; offset: number; r: number; label: string }> = {
+  circle: { n: 40, offset: 0, r: 5.5, label: '圓形' },
+  square: { n: 4, offset: Math.PI / 4, r: 7.78, label: '方形' },
+  hex: { n: 6, offset: 0, r: 6.35, label: '六角' },
+  oct: { n: 8, offset: Math.PI / 8, r: 5.95, label: '八角' },
+};
+const SHAPE_KEYS: Record<string, string> = { '1': 'circle', '2': 'square', '3': 'hex', '4': 'oct' };
 
 const app = document.getElementById('app')!;
 const msgEl = document.getElementById('msg')!;
 const hpFillPlayer = document.querySelector<HTMLDivElement>('#hp-player .hpfill')!;
 const hpFillEnemy = document.querySelector<HTMLDivElement>('#hp-enemy .hpfill')!;
 
-// 2D 物理座標 (x, y) 對應 3D 場景 (x, 高度, -y)
 function to3D(p: { x: number; y: number }, h = 0): THREE.Vector3 {
   return new THREE.Vector3(p.x, h, -p.y);
 }
@@ -63,7 +68,6 @@ function wrapAngle(a: number): number {
   while (a < -Math.PI) a += Math.PI * 2;
   return a;
 }
-// 碰撞分組:自己的部件之間不互撞(武器不卡自己的盾),但照常撞敵人與牆
 function partGroups(knightIndex: number): number {
   const membership = 1 << knightIndex;
   const filter = 0xffff & ~membership;
@@ -71,9 +75,7 @@ function partGroups(knightIndex: number): number {
 }
 const WALL_GROUPS = (0x4 << 16) | 0xffff;
 
-// ---------- 模型自動擺正 ----------
-// 各模型軸向/原點不同,不逐件手調:量 bbox 自動轉正。
-// 回傳的 group:內容沿 +X 從 0 延伸到 targetLen,Y/Z 置中。
+// ---------- 模型自動擺正(量 bbox,不逐件手調) ----------
 function fitBlade(src: THREE.Object3D, targetLen: number): THREE.Group {
   const axisRot = new THREE.Group();
   axisRot.add(src.clone(true));
@@ -93,7 +95,6 @@ function fitBlade(src: THREE.Object3D, targetLen: number): THREE.Group {
   outer.scale.setScalar(scale);
   return outer;
 }
-// 盾:最薄軸轉到 +X(盾面法線朝敵人),最寬軸轉到 Z(橫向),全置中。
 function fitShield(src: THREE.Object3D, targetWidth: number): THREE.Group {
   const axisRot = new THREE.Group();
   axisRot.add(src.clone(true));
@@ -119,7 +120,6 @@ function fitShield(src: THREE.Object3D, targetWidth: number): THREE.Group {
   outer.scale.setScalar(scale);
   return outer;
 }
-// 從角色模型抽出單一部件(bind pose 幾何),回傳未蒙皮的靜態 mesh
 function staticPart(root: THREE.Object3D, suffix: RegExp): THREE.Mesh | null {
   let found: THREE.Mesh | null = null;
   root.traverse((o) => {
@@ -131,7 +131,7 @@ function staticPart(root: THREE.Object3D, suffix: RegExp): THREE.Mesh | null {
   return new THREE.Mesh(f.geometry, f.material);
 }
 
-// ---------- 石板地貼圖(程式生成,不用外部素材) ----------
+// ---------- 石板地貼圖(程式生成) ----------
 function makeStoneTexture(): THREE.CanvasTexture {
   const c = document.createElement('canvas');
   c.width = c.height = 512;
@@ -145,7 +145,6 @@ function makeStoneTexture(): THREE.CanvasTexture {
       const l = 30 + Math.random() * 10;
       ctx.fillStyle = `hsl(${28 + Math.random() * 8}, ${7 + Math.random() * 5}%, ${l}%)`;
       ctx.fillRect(col * tw + off + 3, r * th + 3, tw - 6, th - 6);
-      // 石面斑點
       ctx.fillStyle = `rgba(0,0,0,0.12)`;
       for (let i = 0; i < 14; i++) {
         ctx.fillRect(col * tw + off + 4 + Math.random() * (tw - 10), r * th + 4 + Math.random() * (th - 10), 2 + Math.random() * 3, 2 + Math.random() * 3);
@@ -202,47 +201,61 @@ function start(models: Models) {
   const sun = new THREE.DirectionalLight(0xfff2e0, 1.3);
   sun.position.set(5, 12, 3);
   sun.castShadow = true;
-  sun.shadow.camera.left = -8; sun.shadow.camera.right = 8;
-  sun.shadow.camera.top = 8; sun.shadow.camera.bottom = -8;
+  sun.shadow.camera.left = -9; sun.shadow.camera.right = 9;
+  sun.shadow.camera.top = 9; sun.shadow.camera.bottom = -9;
   scene.add(sun);
-  // 角落火把感的暖光
-  for (const [lx, lz] of [[-CFG.arenaHalf, -CFG.arenaHalf], [CFG.arenaHalf, CFG.arenaHalf]] as const) {
+  for (const [lx, lz] of [[-2.8, -2.8], [2.8, 2.8]] as const) {
     const torch = new THREE.PointLight(0xffaa55, 12, 14, 1.6);
     torch.position.set(lx, 2.2, lz);
     scene.add(torch);
   }
 
   const stoneTex = makeStoneTexture();
-  const floor = new THREE.Mesh(
-    new THREE.PlaneGeometry(CFG.arenaHalf * 2 + 1, CFG.arenaHalf * 2 + 1),
-    new THREE.MeshStandardMaterial({ map: stoneTex, roughness: 0.95 })
-  );
-  floor.rotation.x = -Math.PI / 2;
-  floor.receiveShadow = true;
-  scene.add(floor);
+  const floorMat = new THREE.MeshStandardMaterial({ map: stoneTex, roughness: 0.95 });
+  const wallMat = new THREE.MeshStandardMaterial({ map: stoneTex, color: 0x8a8078, roughness: 0.9 });
 
   // ---------- Rapier 物理世界(俯視角 → 沒有重力) ----------
   const world = new RAPIER.World({ x: 0, y: 0 });
 
-  // 四面牆(石材)
-  const wallMat = new THREE.MeshStandardMaterial({ map: stoneTex, color: 0x8a8078, roughness: 0.9 });
-  for (const [x, y, hx, hy] of [
-    [0, CFG.arenaHalf, CFG.arenaHalf, 0.2],
-    [0, -CFG.arenaHalf, CFG.arenaHalf, 0.2],
-    [CFG.arenaHalf, 0, 0.2, CFG.arenaHalf],
-    [-CFG.arenaHalf, 0, 0.2, CFG.arenaHalf],
-  ] as const) {
-    const body = world.createRigidBody(RAPIER.RigidBodyDesc.fixed().setTranslation(x, y));
-    world.createCollider(RAPIER.ColliderDesc.cuboid(hx, hy).setCollisionGroups(WALL_GROUPS), body);
-    const mesh = new THREE.Mesh(new THREE.BoxGeometry(hx * 2, 0.8, hy * 2), wallMat);
-    mesh.position.set(x, 0.4, -y);
-    mesh.castShadow = true;
-    scene.add(mesh);
+  // ---------- 場地產生器:N 邊形圍牆(圓=40邊) ----------
+  const arenaObjs: { bodies: RAPIER.RigidBody[]; meshes: THREE.Object3D[] } = { bodies: [], meshes: [] };
+  let arenaShape = localStorage.getItem('arenaShape') ?? 'square';
+  if (!ARENA_SHAPES[arenaShape]) arenaShape = 'square';
+
+  function buildArena(key: string) {
+    for (const b of arenaObjs.bodies) world.removeRigidBody(b);
+    for (const m of arenaObjs.meshes) scene.remove(m);
+    arenaObjs.bodies.length = 0;
+    arenaObjs.meshes.length = 0;
+    const { n, offset, r: R } = ARENA_SHAPES[key];
+    // 地板:正 n 邊形(CircleGeometry 本來就是多邊形,圓=多邊到看不出來)
+    const floor = new THREE.Mesh(new THREE.CircleGeometry(R + 0.3, n === 40 ? 64 : n, offset), floorMat);
+    floor.rotation.x = -Math.PI / 2;
+    floor.receiveShadow = true;
+    scene.add(floor);
+    arenaObjs.meshes.push(floor);
+    // 圍牆:每條邊一段
+    const apothem = R * Math.cos(Math.PI / n);
+    const halfLen = R * Math.sin(Math.PI / n);
+    for (let i = 0; i < n; i++) {
+      const phi = offset + (i + 0.5) * (Math.PI * 2) / n;
+      const cx = Math.cos(phi) * apothem, cy = Math.sin(phi) * apothem;
+      const rot = phi + Math.PI / 2;
+      const body = world.createRigidBody(RAPIER.RigidBodyDesc.fixed().setTranslation(cx, cy).setRotation(rot));
+      world.createCollider(RAPIER.ColliderDesc.cuboid(halfLen + 0.05, 0.2).setCollisionGroups(WALL_GROUPS), body);
+      arenaObjs.bodies.push(body);
+      const mesh = new THREE.Mesh(new THREE.BoxGeometry(halfLen * 2 + 0.1, 0.9, 0.4), wallMat);
+      mesh.position.set(cx, 0.45, -cy);
+      mesh.rotation.y = rot;
+      mesh.castShadow = true;
+      scene.add(mesh);
+      arenaObjs.meshes.push(mesh);
+    }
+    localStorage.setItem('arenaShape', key);
   }
+  buildArena(arenaShape);
 
-  // 死亡碎裂用:部件 mesh 範本 + 它在身體上的局部位置(3D rig 座標)
   type DebrisPart = { mesh: THREE.Object3D; l: { x: number; y: number; z: number } };
-
   type Arm = {
     rb: RAPIER.RigidBody;
     joint: RAPIER.ImpulseJoint | null;
@@ -269,12 +282,10 @@ function start(models: Models) {
     debrisParts: DebrisPart[] = [];
     flashUntil = 0;
     spawn: { x: number; y: number; angle: number };
-    // AI 狀態
     swingTimer = 1.0;
     swingDir = 1;
     lastSwingAt = -9;
     stuckTime = 0;
-    // step 前的速度快照:判傷要用「進入碰撞前」的速度
     weaponPreLv = { x: 0, y: 0 };
     weaponPreW = 0;
     bodyPreLv = { x: 0, y: 0 };
@@ -287,7 +298,6 @@ function start(models: Models) {
       this.shield = SHIELDS[shieldKey];
       const groups = partGroups(index);
 
-      // ----- 身體剛體 -----
       this.rb = world.createRigidBody(
         RAPIER.RigidBodyDesc.dynamic()
           .setTranslation(x, y)
@@ -296,22 +306,21 @@ function start(models: Models) {
           .setAngularDamping(CFG.angularDamping)
       );
       world.createCollider(
-        RAPIER.ColliderDesc.ball(CFG.bodyRadius).setDensity(1.0).setRestitution(0.2)
+        RAPIER.ColliderDesc.ball(CFG.bodyRadius).setDensity(1.0 / (S * S)).setRestitution(0.2)
           .setCollisionGroups(groups),
         this.rb
       );
 
-      // ----- 兩隻手臂(武器在右手 = 2D 局部 -y,盾在左手 = +y) -----
-      this.swordArm = this.makeArm({ x: 0.1, y: -CFG.shoulder }, CFG.jointLimit);
-      this.shieldArm = this.makeArm({ x: 0.1, y: CFG.shoulder }, CFG.shieldLimit);
+      this.swordArm = this.makeArm({ x: 0.05, y: -CFG.shoulder }, CFG.jointLimit);
+      this.shieldArm = this.makeArm({ x: 0.05, y: CFG.shoulder }, CFG.shieldLimit);
 
       world.createCollider(
-        RAPIER.ColliderDesc.cuboid(0.2, 0.05).setTranslation(0.24, 0).setDensity(0.35)
+        RAPIER.ColliderDesc.cuboid(0.2 * S, 0.05 * S).setTranslation(0.24 * S, 0).setDensity(0.35 / (S * S))
           .setCollisionGroups(groups),
         this.swordArm.rb
       );
       world.createCollider(
-        RAPIER.ColliderDesc.cuboid(this.weapon.length / 2, 0.04)
+        RAPIER.ColliderDesc.cuboid(this.weapon.length / 2, 0.04 * S)
           .setTranslation(CFG.bladeStart + this.weapon.length / 2, 0)
           .setDensity(this.weapon.density)
           .setRestitution(0.3)
@@ -319,19 +328,19 @@ function start(models: Models) {
         this.swordArm.rb
       );
       world.createCollider(
-        RAPIER.ColliderDesc.cuboid(0.16, 0.05).setTranslation(0.2, 0).setDensity(0.35)
+        RAPIER.ColliderDesc.cuboid(0.16 * S, 0.05 * S).setTranslation(0.2 * S, 0).setDensity(0.35 / (S * S))
           .setCollisionGroups(groups),
         this.shieldArm.rb
       );
       world.createCollider(
-        RAPIER.ColliderDesc.cuboid(0.07, this.shield.halfWidth).setTranslation(0.48, 0)
+        RAPIER.ColliderDesc.cuboid(0.07 * S, this.shield.halfWidth).setTranslation(0.48 * S, 0)
           .setDensity(this.shield.density)
           .setRestitution(0.2)
           .setCollisionGroups(groups),
         this.shieldArm.rb
       );
 
-      // ----- 角色模型(KayKit,蒙皮+動畫) -----
+      // ----- 角色模型 -----
       this.mesh = new THREE.Group();
       this.rig = new THREE.Group();
       this.mesh.add(this.rig);
@@ -339,26 +348,24 @@ function start(models: Models) {
       const bbox = new THREE.Box3().setFromObject(this.model);
       const charScale = CFG.charHeight / (bbox.max.y - bbox.min.y);
       this.model.scale.setScalar(charScale);
-      const modelYaw = Math.PI / 2; // KayKit 面向 +Z → 遊戲面向 +X
+      const modelYaw = Math.PI / 2;
       this.model.rotation.y = modelYaw;
       this.model.traverse((o) => {
         const m = o as THREE.Mesh;
         if (!m.isMesh) return;
-        // 模型自帶的武器道具 + 手臂藏掉(手臂改掛在物理手臂上)
         if (/(Sword|Shield|Axe|Bow|Mug|Offhand|ArmLeft|ArmRight)/i.test(m.name)) {
           m.visible = false;
           return;
         }
         m.castShadow = true;
         const mat = (m.material as THREE.MeshStandardMaterial).clone();
-        if (/Cape$/.test(m.name)) mat.color.setHex(capeTint); // 披風染隊伍色
+        if (/Cape$/.test(m.name)) mat.color.setHex(capeTint);
         m.material = mat;
         this.flashMats.push(mat);
       });
       this.rig.add(this.model);
       scene.add(this.mesh);
 
-      // 死亡碎裂部件:身體/頭/頭盔/雙腿(bind pose 靜態化 + 置中修正)
       for (const suffix of [/Body$/, /Head$/, /(Helmet|Hat)$/, /LegLeft$/, /LegRight$/]) {
         const part = staticPart(char.scene, suffix);
         if (!part) continue;
@@ -371,39 +378,38 @@ function start(models: Models) {
         wrapper.scale.setScalar(charScale);
         wrapper.rotation.y = modelYaw;
         const l = center.clone().applyAxisAngle(new THREE.Vector3(0, 1, 0), modelYaw).multiplyScalar(charScale);
-        this.debrisParts.push({ mesh: wrapper, l: { x: l.x, y: Math.max(0.15, l.y), z: l.z } });
+        this.debrisParts.push({ mesh: wrapper, l: { x: l.x, y: Math.max(0.2, l.y), z: l.z } });
       }
 
-      // 動畫:走路/待機混合(手臂骨骼被藏掉,不衝突)
       this.mixer = new THREE.AnimationMixer(this.model);
       const walkClip = char.animations.find((a) => a.name === 'Walking_A');
       const idleClip = char.animations.find((a) => a.name === 'Idle');
       if (walkClip) { this.walkAction = this.mixer.clipAction(walkClip); this.walkAction.play(); }
       if (idleClip) { this.idleAction = this.mixer.clipAction(idleClip); this.idleAction.play(); }
 
-      // ----- 物理手臂外觀:角色自己的手臂網格 + 武器/盾模型 -----
+      // ----- 物理手臂外觀 -----
       const armRight = staticPart(char.scene, /ArmRight$/);
       const sg = this.swordArm.group;
       if (armRight) {
-        const armFit = fitBlade(armRight, 0.5);
-        armFit.position.set(0, 0.7, 0);
+        const armFit = fitBlade(armRight, 0.5 * S);
+        armFit.position.set(0, 0.7 * S, 0);
         armFit.traverse((o) => { o.castShadow = true; });
         sg.add(armFit);
       }
-      const weaponModel = fitBlade(models.items[this.weapon.model], CFG.bladeStart + this.weapon.length - 0.25);
-      weaponModel.position.set(0.25, 0.72, 0);
+      const weaponModel = fitBlade(models.items[this.weapon.model], CFG.bladeStart + this.weapon.length - 0.25 * S);
+      weaponModel.position.set(0.25 * S, 0.72 * S, 0);
       sg.add(weaponModel);
 
       const armLeft = staticPart(char.scene, /ArmLeft$/);
       const hg = this.shieldArm.group;
       if (armLeft) {
-        const armFit = fitBlade(armLeft, 0.45);
-        armFit.position.set(0, 0.66, 0);
+        const armFit = fitBlade(armLeft, 0.45 * S);
+        armFit.position.set(0, 0.66 * S, 0);
         armFit.traverse((o) => { o.castShadow = true; });
         hg.add(armFit);
       }
       const shieldModel = fitShield(models.items[this.shield.model], this.shield.halfWidth * 2 + 0.05);
-      shieldModel.position.set(0.5, 0.62, 0);
+      shieldModel.position.set(0.5 * S, 0.62 * S, 0);
       hg.add(shieldModel);
     }
 
@@ -495,7 +501,6 @@ function start(models: Models) {
         arm.group.rotation.y = arm.rb.rotation();
       }
 
-      // 走路/待機動畫依速度混合;傾身純視覺
       const lv = this.rb.linvel();
       const bw = this.rb.angvel();
       const speed = Math.hypot(lv.x, lv.y);
@@ -517,9 +522,9 @@ function start(models: Models) {
   }
 
   // 出生點刻意不完全對稱:完全對稱會讓兩把武器「刃尖頂刃尖」形成穩定僵局
-  const player = new Knight(-3, 0, 0, 0x5588ff, 0, true, models.knight, 'sword2h', 'round');
-  const enemy = new Knight(3, 0.8, Math.PI + 0.3, 0xff5544, 1, false, models.barbarian, 'axe2h', 'spikes');
-  // 開 console 可以直接看血量/位置、改 CFG 調手感
+  // 出生點:離牆(3.5)>武器觸及(~3.05)>離對手身體(3.4)要同時成立,出生原地空揮才不卡牆也砍不到人
+  const player = new Knight(-2.0, 0, 0, 0x5588ff, 0, true, models.knight, 'sword2h', 'round');
+  const enemy = new Knight(2.0, 0.8, Math.PI + 0.3, 0xff5544, 1, false, models.barbarian, 'axe2h', 'spikes');
   (window as unknown as Record<string, unknown>).__game = { player, enemy, CFG, WEAPONS, SHIELDS };
 
   // ---------- 噴血粒子 ----------
@@ -566,11 +571,11 @@ function start(models: Models) {
   function updatePools(dt: number) {
     for (const p of pools) {
       p.age += dt;
-      p.mesh.scale.setScalar(Math.min(1, p.age * 1.5) * 0.9);
+      p.mesh.scale.setScalar(Math.min(1, p.age * 1.5) * 0.9 * S);
     }
   }
 
-  // ---------- 死亡碎裂:模型部件變殘骸,兩臂(手臂+武器)脫離飛走 ----------
+  // ---------- 死亡碎裂 ----------
   type Debris = {
     mesh: THREE.Object3D; rb: RAPIER.RigidBody;
     h: number; vy: number; spinAxis: THREE.Vector3; spin: number;
@@ -598,7 +603,7 @@ function start(models: Models) {
         RAPIER.RigidBodyDesc.dynamic().setTranslation(wx, wy)
           .setLinearDamping(2.5).setAngularDamping(3)
       );
-      world.createCollider(RAPIER.ColliderDesc.ball(0.13).setDensity(0.4).setRestitution(0.4), rb);
+      world.createCollider(RAPIER.ColliderDesc.ball(0.13 * S).setDensity(0.4 / (S * S)).setRestitution(0.4), rb);
       rb.applyImpulse({
         x: ix * (0.07 + Math.random() * 0.07) + (Math.random() - 0.5) * 0.06,
         y: iy * (0.07 + Math.random() * 0.07) + (Math.random() - 0.5) * 0.06,
@@ -609,15 +614,15 @@ function start(models: Models) {
         spin: (Math.random() - 0.5) * 14,
       });
     }
-    spawnBlood(to3D({ x: p.x, y: p.y }, 0.7), 40);
+    spawnBlood(to3D({ x: p.x, y: p.y }, 0.7 * S), 40);
     spawnPool(to3D({ x: p.x, y: p.y }));
   }
   function updateDebris(dt: number) {
     for (const d of debris) {
       d.vy -= 9.8 * dt;
       d.h += d.vy * dt;
-      if (d.h < 0.12 && d.vy < 0) {
-        d.h = 0.12;
+      if (d.h < 0.15 && d.vy < 0) {
+        d.h = 0.15;
         d.vy = Math.abs(d.vy) > 0.8 ? -d.vy * 0.35 : 0;
       }
       const t = d.rb.translation();
@@ -636,8 +641,6 @@ function start(models: Models) {
   }
 
   // ---------- 傷害判定 ----------
-  // 每一幀直接算「刃部線段 vs 身體圓」,有交疊再看接觸點的相對速度夠不夠快。
-  // 刃部長在武器臂剛體上;盾不造成傷害,純物理格擋。
   let gameOver = false;
   let clock = 0;
   const lastHitAt = new Map<string, number>();
@@ -658,7 +661,7 @@ function start(models: Models) {
     let t = (v.x - bx) * dirx + (v.y - by) * diry;
     t = Math.max(0, Math.min(attacker.weapon.length, t));
     const cx = bx + dirx * t, cy = by + diry * t;
-    if (Math.hypot(v.x - cx, v.y - cy) > CFG.bodyRadius + 0.12) return;
+    if (Math.hypot(v.x - cx, v.y - cy) > CFG.bodyRadius + 0.12 * S) return;
 
     const key = attacker.isPlayer ? 'p->e' : 'e->p';
     if (clock - (lastHitAt.get(key) ?? -9) < CFG.hitCooldown) return;
@@ -674,7 +677,7 @@ function start(models: Models) {
     lastHitAt.set(key, clock);
     victim.hp = Math.max(0, victim.hp - dmg);
     victim.flashUntil = clock + 0.12;
-    spawnBlood(to3D({ x: cx, y: cy }, 0.8), Math.min(30, Math.round(dmg * 1.5)));
+    spawnBlood(to3D({ x: cx, y: cy }, 0.8 * S), Math.min(30, Math.round(dmg * 1.5)));
     updateHpBars();
 
     if (victim.hp <= 0) {
@@ -689,8 +692,14 @@ function start(models: Models) {
   const keys = new Set<string>();
   window.addEventListener('keydown', (e) => {
     if (e.key.startsWith('Arrow')) e.preventDefault();
-    keys.add(e.key.toLowerCase());
-    if (e.key.toLowerCase() === 'r') restart();
+    const k = e.key.toLowerCase();
+    keys.add(k);
+    if (k === 'r') restart();
+    if (SHAPE_KEYS[k]) {
+      arenaShape = SHAPE_KEYS[k];
+      buildArena(arenaShape);
+      restart(); // 換場地把人拉回出生點,避免卡在新牆外
+    }
   });
   window.addEventListener('keyup', (e) => keys.delete(e.key.toLowerCase()));
 
@@ -703,7 +712,7 @@ function start(models: Models) {
     updateHpBars();
   }
 
-  // ---------- 簡單 AI:瞄準 → 靠近 → 左右輪流甩武器 ----------
+  // ---------- 簡單 AI(距離門檻跟著人物尺寸走) ----------
   function updateAI(dt: number) {
     const p = player.pos, e = enemy.pos;
     const dx = p.x - e.x, dy = p.y - e.y;
@@ -712,7 +721,7 @@ function start(models: Models) {
     const diff = wrapAngle(targetAngle - enemy.angle);
 
     enemy.swingTimer -= dt;
-    if (enemy.swingTimer <= 0 && dist < 2.8) {
+    if (enemy.swingTimer <= 0 && dist < 2.8 * S) {
       enemy.swingDir *= -1;
       enemy.rb.applyTorqueImpulse(enemy.swingDir * CFG.aiSwingImpulse, true);
       enemy.swingTimer = 1.1 + Math.random() * 0.8;
@@ -721,11 +730,11 @@ function start(models: Models) {
       const w = enemy.rb.angvel();
       enemy.turn(diff * 6 - w * 1.5, dt);
     }
-    if (dist > 2.0 && Math.abs(diff) < 0.7) enemy.forward(CFG.moveForce, dt);
-    else if (dist < 1.2) enemy.forward(-CFG.moveForce * 0.6, dt);
+    if (dist > 2.0 * S && Math.abs(diff) < 0.7) enemy.forward(CFG.moveForce, dt);
+    else if (dist < 1.2 * S) enemy.forward(-CFG.moveForce * 0.6, dt);
 
     const lv = enemy.rb.linvel();
-    if (dist > 2.0 && Math.hypot(lv.x, lv.y) < 0.4) enemy.stuckTime += dt;
+    if (dist > 2.0 * S && Math.hypot(lv.x, lv.y) < 0.4) enemy.stuckTime += dt;
     else enemy.stuckTime = 0;
     if (enemy.stuckTime > 0.7) {
       const side = Math.random() < 0.5 ? 1 : -1;
