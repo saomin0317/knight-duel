@@ -87,12 +87,25 @@ function start() {
     scene.add(mesh);
   }
 
+  // ---------- 共用材質 ----------
+  const bladeMat = new THREE.MeshStandardMaterial({ color: 0xdfe3ea, metalness: 0.9, roughness: 0.25 });
+  const leatherMat = new THREE.MeshStandardMaterial({ color: 0x4a3b2f, roughness: 0.9 });
+  const darkMat = new THREE.MeshStandardMaterial({ color: 0x3a3d44, roughness: 0.7 });
+
+  // 死亡碎裂用:部件 mesh + 它在身體上的局部位置
+  type DebrisPart = { mesh: THREE.Mesh; l: { x: number; y: number; z: number } };
+
   // ---------- 武士 ----------
   class Knight {
     rb: RAPIER.RigidBody;
     hp = CFG.maxHp;
-    mesh: THREE.Group;
-    bodyMat: THREE.MeshStandardMaterial;
+    mesh: THREE.Group;      // 外層:跟著物理身體旋轉(yaw)
+    rig: THREE.Group;       // 內層:走路/傾身動畫 + 所有部件
+    legL!: THREE.Mesh;
+    legR!: THREE.Mesh;
+    flashMats: THREE.MeshStandardMaterial[] = [];
+    debrisParts: DebrisPart[] = [];
+    walkPhase = 0;
     flashUntil = 0;
     spawn: { x: number; y: number; angle: number };
     // AI 狀態
@@ -126,23 +139,47 @@ function start() {
         this.rb
       );
 
-      // 灰盒外觀:圓柱身體 + 長方體劍 + 前方小塊標示臉的方向
+      // ----- 外觀:部件組裝(預切部件 = 之後斷肢/碎裂的基礎) -----
+      const clothMat = new THREE.MeshStandardMaterial({ color, roughness: 0.85 });
+      const steelMat = new THREE.MeshStandardMaterial({ color: 0x9aa0ad, metalness: 0.6, roughness: 0.5 });
+      this.flashMats = [clothMat, steelMat];
+
       this.mesh = new THREE.Group();
-      this.bodyMat = new THREE.MeshStandardMaterial({ color });
-      const body = new THREE.Mesh(new THREE.CylinderGeometry(CFG.bodyRadius, CFG.bodyRadius, 1.1, 20), this.bodyMat);
-      body.position.y = 0.55;
-      body.castShadow = true;
-      this.mesh.add(body);
-      const nose = new THREE.Mesh(new THREE.BoxGeometry(0.25, 0.2, 0.2), this.bodyMat);
-      nose.position.set(CFG.bodyRadius, 0.95, 0);
-      this.mesh.add(nose);
-      const sword = new THREE.Mesh(
-        new THREE.BoxGeometry(CFG.swordLength, 0.1, 0.08),
-        new THREE.MeshStandardMaterial({ color: 0xd0d0d8, metalness: 0.8, roughness: 0.3 })
-      );
-      sword.position.set(CFG.bodyRadius + CFG.swordLength / 2, 0.7, 0);
-      sword.castShadow = true;
-      this.mesh.add(sword);
+      this.rig = new THREE.Group();
+      this.mesh.add(this.rig);
+
+      const add = (m: THREE.Mesh, lx: number, ly: number, lz: number, asDebris = false) => {
+        m.position.set(lx, ly, lz);
+        m.castShadow = true;
+        this.rig.add(m);
+        if (asDebris) this.debrisParts.push({ mesh: m, l: { x: lx, y: ly, z: lz } });
+        return m;
+      };
+
+      // 腿(局部座標:+X 是面向,+Z 是右手邊)
+      this.legL = add(new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.3, 0.14), leatherMat), 0, 0.15, -0.16, true);
+      this.legR = add(new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.3, 0.14), leatherMat), 0, 0.15, 0.16, true);
+      // 戰袍(隊伍色)+ 胸甲
+      add(new THREE.Mesh(new THREE.CylinderGeometry(0.34, 0.38, 0.55, 14), clothMat), 0, 0.58, 0, true);
+      add(new THREE.Mesh(new THREE.CylinderGeometry(0.36, 0.34, 0.25, 14), steelMat), 0, 0.82, 0, true);
+      // 肩甲
+      add(new THREE.Mesh(new THREE.SphereGeometry(0.14, 10, 8), steelMat), 0, 0.9, -0.34, true);
+      add(new THREE.Mesh(new THREE.SphereGeometry(0.14, 10, 8), steelMat), 0, 0.9, 0.34, true);
+      // 頭盔 + 面甲縫 + 盔纓(隊伍色)
+      add(new THREE.Mesh(new THREE.SphereGeometry(0.17, 12, 10), steelMat), 0, 1.05, 0, true);
+      add(new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.05, 0.2), darkMat), 0.14, 1.05, 0);
+      add(new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.22, 0.06), clothMat), -0.04, 1.22, 0, true);
+      // 持劍手臂 + 手
+      const arm = add(new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.1, 0.1), clothMat), 0.26, 0.74, 0.2);
+      arm.rotation.y = 0.45;
+      add(new THREE.Mesh(new THREE.SphereGeometry(0.08, 8, 6), leatherMat), 0.42, 0.72, 0.06);
+      // 劍:握把 + 護手 + 劍身(劍身範圍對齊物理碰撞體 0.45~2.05,所見即判定)
+      add(new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.06, 0.06), leatherMat), 0.34, 0.72, 0);
+      add(new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.05, 0.3), darkMat), 0.45, 0.72, 0);
+      const bladeLen = CFG.swordLength - 0.05;
+      add(new THREE.Mesh(new THREE.BoxGeometry(bladeLen, 0.045, 0.12), bladeMat),
+        CFG.bodyRadius + 0.05 + bladeLen / 2, 0.72, 0, true);
+
       scene.add(this.mesh);
     }
 
@@ -172,13 +209,29 @@ function start() {
       this.swingTimer = 1.0;
       this.lastSwingAt = -9;
       this.stuckTime = 0;
+      this.rig.visible = true;
     }
 
-    sync(now: number) {
+    sync(now: number, dt: number) {
       const p = this.pos;
       this.mesh.position.set(p.x, 0, -p.y);
       this.mesh.rotation.y = this.angle;
-      this.bodyMat.emissive.setHex(now < this.flashUntil ? 0x881111 : 0x000000);
+
+      // 走路 + 傾身(純視覺,不影響物理)
+      const lv = this.rb.linvel();
+      const w = this.rb.angvel();
+      const speed = Math.hypot(lv.x, lv.y);
+      this.walkPhase += (speed * 3 + Math.abs(w) * 1.2) * dt;
+      const amp = Math.min(0.14, speed * 0.06 + Math.abs(w) * 0.01);
+      this.legL.position.x = Math.sin(this.walkPhase) * amp;
+      this.legR.position.x = -Math.sin(this.walkPhase) * amp;
+      const a = this.angle;
+      const fwdSpeed = lv.x * Math.cos(a) + lv.y * Math.sin(a);
+      this.rig.rotation.x = THREE.MathUtils.clamp(fwdSpeed * 0.03, -0.12, 0.12);
+      this.rig.rotation.z = THREE.MathUtils.clamp(-w * 0.03, -0.15, 0.15);
+
+      const flash = now < this.flashUntil ? 0x881111 : 0x000000;
+      for (const m of this.flashMats) m.emissive.setHex(flash);
     }
   }
 
@@ -188,7 +241,7 @@ function start() {
   // 開 console 可以直接看血量/位置、改 CFG 調手感
   (window as unknown as Record<string, unknown>).__game = { player, enemy, CFG };
 
-  // ---------- 噴血粒子(灰盒版:紅色小方塊) ----------
+  // ---------- 噴血粒子 ----------
   const bloodGeo = new THREE.BoxGeometry(0.07, 0.07, 0.07);
   const bloodMat = new THREE.MeshBasicMaterial({ color: 0xaa0000 });
   const particles: { mesh: THREE.Mesh; vel: THREE.Vector3; life: number }[] = [];
@@ -215,6 +268,86 @@ function start() {
       if (pt.mesh.position.y < 0.03) { pt.mesh.position.y = 0.03; pt.vel.set(0, 0, 0); }
       if (pt.life <= 0) { scene.remove(pt.mesh); particles.splice(i, 1); }
     }
+  }
+
+  // ---------- 地上血泊 ----------
+  const poolGeo = new THREE.CircleGeometry(1, 24);
+  const poolMat = new THREE.MeshBasicMaterial({ color: 0x550000, transparent: true, opacity: 0.85 });
+  const pools: { mesh: THREE.Mesh; age: number }[] = [];
+  function spawnPool(at: THREE.Vector3) {
+    const mesh = new THREE.Mesh(poolGeo, poolMat);
+    mesh.rotation.x = -Math.PI / 2;
+    mesh.position.set(at.x, 0.02 + pools.length * 0.002, at.z);
+    mesh.scale.setScalar(0.01);
+    pools.push({ mesh, age: 0 });
+    scene.add(mesh);
+  }
+  function updatePools(dt: number) {
+    for (const p of pools) {
+      p.age += dt;
+      p.mesh.scale.setScalar(Math.min(1, p.age * 1.5) * 0.9);
+    }
+  }
+
+  // ---------- 死亡碎裂:部件變成物理殘骸四散 ----------
+  type Debris = {
+    mesh: THREE.Mesh; rb: RAPIER.RigidBody;
+    h: number; vy: number; spinAxis: THREE.Vector3; spin: number;
+  };
+  const debris: Debris[] = [];
+  function shatter(k: Knight, impact: { x: number; y: number }) {
+    k.rig.visible = false;
+    const p = k.pos, a = k.angle;
+    const mag = Math.hypot(impact.x, impact.y) || 1;
+    const ix = impact.x / mag, iy = impact.y / mag;
+    for (const part of k.debrisParts) {
+      // 部件局部座標 → 2D 世界座標(局部 +X=面向, +Z=右手邊)
+      const wx = p.x + part.l.x * Math.cos(a) + part.l.z * Math.sin(a);
+      const wy = p.y + part.l.x * Math.sin(a) - part.l.z * Math.cos(a);
+      const mesh = part.mesh.clone();
+      mesh.position.set(wx, part.l.y, -wy);
+      scene.add(mesh);
+      const rb = world.createRigidBody(
+        RAPIER.RigidBodyDesc.dynamic().setTranslation(wx, wy)
+          .setLinearDamping(2.5).setAngularDamping(3)
+      );
+      world.createCollider(RAPIER.ColliderDesc.ball(0.13).setDensity(0.4).setRestitution(0.4), rb);
+      // 沿殺招方向噴飛 + 隨機散開
+      rb.applyImpulse({
+        x: ix * (0.07 + Math.random() * 0.07) + (Math.random() - 0.5) * 0.06,
+        y: iy * (0.07 + Math.random() * 0.07) + (Math.random() - 0.5) * 0.06,
+      }, true);
+      debris.push({
+        mesh, rb, h: part.l.y, vy: 1 + Math.random() * 2.5,
+        spinAxis: new THREE.Vector3(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).normalize(),
+        spin: (Math.random() - 0.5) * 14,
+      });
+    }
+    spawnBlood(to3D({ x: p.x, y: p.y }, 0.7), 40);
+    spawnPool(to3D({ x: p.x, y: p.y }));
+  }
+  function updateDebris(dt: number) {
+    for (const d of debris) {
+      // 水平位置跟物理走,高度用簡單拋物線(2D 物理沒有高度)
+      d.vy -= 9.8 * dt;
+      d.h += d.vy * dt;
+      if (d.h < 0.1 && d.vy < 0) {
+        d.h = 0.1;
+        d.vy = Math.abs(d.vy) > 0.8 ? -d.vy * 0.35 : 0;
+      }
+      const t = d.rb.translation();
+      d.mesh.position.set(t.x, d.h, -t.y);
+      if (d.vy !== 0 || Math.abs(d.spin) > 0.1) d.mesh.rotateOnAxis(d.spinAxis, d.spin * dt);
+      d.spin *= 1 - Math.min(1, 2.5 * dt);
+    }
+  }
+  function clearBattlefield() {
+    for (const d of debris) { scene.remove(d.mesh); world.removeRigidBody(d.rb); }
+    debris.length = 0;
+    for (const p of pools) scene.remove(p.mesh);
+    pools.length = 0;
+    for (const pt of particles) scene.remove(pt.mesh);
+    particles.length = 0;
   }
 
   // ---------- 傷害判定 ----------
@@ -244,7 +377,8 @@ function start() {
     const lv = attacker.preLv, w = attacker.preW;
     const rx = cx - p.x, ry = cy - p.y;
     const vv = victim.preLv;
-    const relSpeed = Math.hypot(lv.x - w * ry - vv.x, lv.y + w * rx - vv.y);
+    const impact = { x: lv.x - w * ry - vv.x, y: lv.y + w * rx - vv.y };
+    const relSpeed = Math.hypot(impact.x, impact.y);
     const dmg = Math.max(0, relSpeed - CFG.dmgThreshold) * CFG.dmgScale;
     if (dmg <= 0) return; // 慢慢碰到:不痛,物理引擎自己會推開
 
@@ -258,6 +392,7 @@ function start() {
 
     if (victim.hp <= 0) {
       gameOver = true;
+      shatter(victim, impact);
       msgEl.textContent = victim.isPlayer ? '你被擊敗了 — 按 R 再來' : '你贏了!— 按 R 再來';
       msgEl.style.display = 'block';
     }
@@ -273,6 +408,7 @@ function start() {
   window.addEventListener('keyup', (e) => keys.delete(e.key.toLowerCase()));
 
   function restart() {
+    clearBattlefield();
     player.reset();
     enemy.reset();
     gameOver = false;
@@ -338,9 +474,11 @@ function start() {
     swordHitCheck(player, enemy);
     swordHitCheck(enemy, player);
 
-    player.sync(clock);
-    enemy.sync(clock);
+    player.sync(clock, dt);
+    enemy.sync(clock, dt);
     updateParticles(dt);
+    updatePools(dt);
+    updateDebris(dt);
     renderer.render(scene, camera);
   }
   requestAnimationFrame(frame);
