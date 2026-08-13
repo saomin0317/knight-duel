@@ -1,4 +1,4 @@
-# Knight Duel
+# 武士圓舞曲 Knight's Waltz
 
 俯視角物理決鬥遊戲。`npm run dev` 開發、`npm run build` 打包。
 
