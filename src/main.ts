@@ -29,6 +29,14 @@ const CFG = {
   maxHp: 250,
   aiSwingImpulse: 1.0 * S * S,
   charHeight: 1.35 * S,      // 角色模型身高
+  // 體力系統:解「原地陀螺無敵」——高速旋轉燒體力,燒完力竭
+  staminaMax: 100,
+  spinThreshold: 2.5,        // 角速度超過這個就開始燒體力(中速磨人也會慢慢燒;瞄準用的短暫轉向不痛)
+  staminaDrain: 10,          // 每超出 1 rad/s 每秒燒這麼多
+  staminaRegen: 25,          // 低速時每秒回復
+  recoverAt: 60,             // 力竭後體力回到這裡才解除(~2.4 秒懲罰窗口)
+  exhaustedMult: 0.25,       // 力竭時旋轉力剩多少
+  exhaustedBrake: 2.5,       // 力竭時額外角速度衰減:強制把旋轉煞停,殘餘轉速才不會繼續殺人
 };
 
 // ---------- 裝備定義:模型 + 物理參數 + 價格(每件都不同) ----------
@@ -61,14 +69,14 @@ type Foe = {
   hpMult: number; moveMult: number; swingMult: number; heightMult: number; reward: number;
 };
 const ENEMY_ROSTER: Foe[] = [
-  { char: 'skelMinion', label: '骷髏小兵', weapon: 'skelBlade', shield: 'skelSmallA', tint: 0x88ff88, hpMult: 0.6, moveMult: 0.85, swingMult: 0.8, heightMult: 0.85, reward: 40 },
-  { char: 'rogue', label: '盜賊', weapon: 'sword1h', shield: 'badge', tint: 0xdd4466, hpMult: 0.8, moveMult: 1.1, swingMult: 0.9, heightMult: 1.0, reward: 60 },
-  { char: 'skelRogue', label: '骷髏遊蕩者', weapon: 'skelBlade', shield: 'skelSmallB', tint: 0x66dd66, hpMult: 0.9, moveMult: 1.15, swingMult: 1.0, heightMult: 0.95, reward: 80 },
-  { char: 'rogueHooded', label: '刺客', weapon: 'axe1h', shield: 'square', tint: 0x995544, hpMult: 1.0, moveMult: 1.2, swingMult: 1.05, heightMult: 1.0, reward: 100 },
-  { char: 'skelMage', label: '骷髏法師', weapon: 'skelStaff', shield: 'skelSmallB', tint: 0x55ccbb, hpMult: 1.0, moveMult: 1.0, swingMult: 1.1, heightMult: 1.0, reward: 120 },
-  { char: 'barbarian', label: '野蠻人', weapon: 'axe2h', shield: 'spikes', tint: 0xff5544, hpMult: 1.2, moveMult: 1.0, swingMult: 1.15, heightMult: 1.05, reward: 150 },
-  { char: 'mage', label: '法師', weapon: 'staff', shield: 'round', tint: 0xcc55cc, hpMult: 1.0, moveMult: 1.05, swingMult: 1.25, heightMult: 1.0, reward: 170 },
-  { char: 'skelWarrior', label: '骷髏戰士', weapon: 'skelAxe', shield: 'skelLargeA', tint: 0x44ff99, hpMult: 1.4, moveMult: 1.05, swingMult: 1.3, heightMult: 1.08, reward: 220 },
+  { char: 'skelMinion', label: '骷髏小兵', weapon: 'skelBlade', shield: 'skelSmallA', tint: 0x88ff88, hpMult: 0.7, moveMult: 0.85, swingMult: 0.8, heightMult: 0.85, reward: 40 },
+  { char: 'rogue', label: '盜賊', weapon: 'sword1h', shield: 'badge', tint: 0xdd4466, hpMult: 0.9, moveMult: 1.1, swingMult: 0.9, heightMult: 1.0, reward: 60 },
+  { char: 'skelRogue', label: '骷髏遊蕩者', weapon: 'skelBlade', shield: 'skelSmallB', tint: 0x66dd66, hpMult: 1.1, moveMult: 1.15, swingMult: 1.0, heightMult: 0.95, reward: 85 },
+  { char: 'rogueHooded', label: '刺客', weapon: 'axe1h', shield: 'square', tint: 0x995544, hpMult: 1.3, moveMult: 1.2, swingMult: 1.05, heightMult: 1.0, reward: 115 },
+  { char: 'skelMage', label: '骷髏法師', weapon: 'skelStaff', shield: 'skelSmallB', tint: 0x55ccbb, hpMult: 1.5, moveMult: 1.0, swingMult: 1.1, heightMult: 1.0, reward: 150 },
+  { char: 'barbarian', label: '野蠻人', weapon: 'axe2h', shield: 'spikes', tint: 0xff5544, hpMult: 1.8, moveMult: 1.0, swingMult: 1.15, heightMult: 1.05, reward: 190 },
+  { char: 'mage', label: '法師', weapon: 'staff', shield: 'round', tint: 0xcc55cc, hpMult: 2.1, moveMult: 1.05, swingMult: 1.25, heightMult: 1.0, reward: 240 },
+  { char: 'skelWarrior', label: '骷髏戰士', weapon: 'skelAxe', shield: 'skelLargeA', tint: 0x44ff99, hpMult: 2.5, moveMult: 1.05, swingMult: 1.3, heightMult: 1.08, reward: 300 },
 ];
 
 // ---------- 存檔:金幣 / 擁有 / 裝備中 ----------
@@ -354,6 +362,8 @@ function start(models: Models) {
     maxHp: number;
     moveMult: number;
     swingMult: number;
+    stamina = CFG.staminaMax;
+    exhausted = false;
 
     constructor(x: number, y: number, angle: number, capeTint: number,
       public index: number, public isPlayer: boolean,
@@ -534,7 +544,24 @@ function start(models: Models) {
       this.rb.applyImpulse({ x: Math.cos(a) * force * dt, y: Math.sin(a) * force * dt }, true);
     }
     turn(torque: number, dt: number) {
-      this.rb.applyTorqueImpulse(torque * dt, true);
+      // 旋轉力隨體力衰減:體力越低轉越沒力,低體力重啟的旋轉軟弱無害
+      const mult = this.exhausted
+        ? CFG.exhaustedMult
+        : CFG.exhaustedMult + (1 - CFG.exhaustedMult) * (this.stamina / CFG.staminaMax);
+      this.rb.applyTorqueImpulse(torque * mult * dt, true);
+    }
+
+    // 體力:高速旋轉燒,低速回;燒完力竭到回滿門檻才解除
+    updateStamina(dt: number) {
+      const w = this.rb.angvel();
+      const aw = Math.abs(w);
+      if (aw > CFG.spinThreshold) this.stamina -= (aw - CFG.spinThreshold) * CFG.staminaDrain * dt;
+      else this.stamina += CFG.staminaRegen * dt;
+      this.stamina = THREE.MathUtils.clamp(this.stamina, 0, CFG.staminaMax);
+      if (this.stamina <= 0) this.exhausted = true;
+      else if (this.exhausted && this.stamina >= CFG.recoverAt) this.exhausted = false;
+      // 力竭:強制煞停旋轉(不然殘餘轉速還能繼續當攪拌機)
+      if (this.exhausted) this.rb.setAngvel(w * Math.max(0, 1 - CFG.exhaustedBrake * dt), true);
     }
 
     reset() {
@@ -556,6 +583,8 @@ function start(models: Models) {
       this.swingTimer = 1.0;
       this.lastSwingAt = -9;
       this.stuckTime = 0;
+      this.stamina = CFG.staminaMax;
+      this.exhausted = false;
       this.rig.visible = true;
       for (const arm of [this.swordArm, this.shieldArm]) arm.group.visible = true;
     }
@@ -601,6 +630,8 @@ function start(models: Models) {
 
   // ---------- 金幣 HUD + 鐵匠鋪 ----------
   const goldEl = document.getElementById('gold')!;
+  const staminaEl = document.getElementById('stamina-player')!;
+  const staminaFill = staminaEl.querySelector<HTMLDivElement>('.stfill')!;
   const shopEl = document.getElementById('shop')!;
   const shopItemsEl = document.getElementById('shop-items')!;
   let shopOpen = false;
@@ -864,10 +895,50 @@ function start(models: Models) {
     const targetAngle = Math.atan2(dy, dx);
     const diff = wrapAngle(targetAngle - enemy.angle);
 
+    // 反陀螺:玩家的刀還在轉、或快要能轉(力竭尾聲體力回升)就退到掃不到的地方等
+    const playerSpinning = Math.abs(player.rb.angvel()) > 2.5 || (player.exhausted && player.stamina >= 45);
+    const spinReach = 0.49 + CFG.bladeStart + player.weapon.length + 0.5; // 玩家武器掃得到的半徑+安全邊
+    if (playerSpinning) {
+      const w = enemy.rb.angvel();
+      enemy.turn(diff * 6 - w * 1.5, dt); // 面向盯著
+      if (dist < spinReach) {
+        // 直線遠離(不管面向);被牆擋住退不動就往側面滑
+        const ux = -dx / dist, uy = -dy / dist;
+        enemy.rb.applyImpulse({ x: ux * CFG.moveForce * enemy.moveMult * dt, y: uy * CFG.moveForce * enemy.moveMult * dt }, true);
+        const lv2 = enemy.rb.linvel();
+        if (Math.hypot(lv2.x, lv2.y) < 0.3) {
+          const side = Math.sin(clock * 2) > 0 ? 1 : -1; // 穩定的側向,不亂抖
+          enemy.rb.applyImpulse({ x: -uy * side * CFG.moveForce * dt, y: ux * side * CFG.moveForce * dt }, true);
+        }
+      }
+      return; // 不出手也不進場,等
+    }
+
+    // 懲罰模式:玩家力竭(刀也停了)→全速撲上去加倍出手;
+    // 體力回到 45 就提前撤(等刀真的轉起來才跑會被蹭到,物理上逃不掉)
+    if (player.exhausted && player.stamina < 45) {
+      const w = enemy.rb.angvel();
+      enemy.turn(diff * 8 - w * 1.5, dt);
+      if (dist > 1.5) {
+        enemy.rb.applyImpulse({
+          x: (dx / dist) * CFG.moveForce * 1.5 * enemy.moveMult * dt,
+          y: (dy / dist) * CFG.moveForce * 1.5 * enemy.moveMult * dt,
+        }, true);
+      }
+      enemy.swingTimer -= dt * 2;
+      if (enemy.swingTimer <= 0 && dist < 2.9 * S) {
+        enemy.swingDir *= -1;
+        enemy.rb.applyTorqueImpulse(enemy.swingDir * CFG.aiSwingImpulse * enemy.swingMult, true);
+        enemy.swingTimer = (1.1 + Math.random() * 0.8) / enemy.swingMult;
+        enemy.lastSwingAt = clock;
+      }
+      return;
+    }
+
     enemy.swingTimer -= dt;
     if (enemy.swingTimer <= 0 && dist < 2.8 * S) {
       enemy.swingDir *= -1;
-      enemy.rb.applyTorqueImpulse(enemy.swingDir * CFG.aiSwingImpulse * enemy.swingMult, true);
+      enemy.rb.applyTorqueImpulse(enemy.swingDir * CFG.aiSwingImpulse * enemy.swingMult * (enemy.exhausted ? 0.3 : 1), true);
       enemy.swingTimer = (1.1 + Math.random() * 0.8) / enemy.swingMult;
       enemy.lastSwingAt = clock;
     } else if (clock - enemy.lastSwingAt > 0.5) {
@@ -903,6 +974,11 @@ function start(models: Models) {
       if (keys.has('arrowdown') || keys.has('s')) player.forward(-CFG.moveForce * 0.7, dt);
       updateAI(dt);
     }
+
+    player.updateStamina(dt);
+    enemy.updateStamina(dt);
+    staminaEl.classList.toggle('exhausted', player.exhausted);
+    staminaFill.style.width = `${player.stamina}%`;
 
     player.captureVel();
     enemy.captureVel();

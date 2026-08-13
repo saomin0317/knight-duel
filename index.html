@@ -16,6 +16,12 @@
     .hpfill { height: 100%; width: 100%; transition: width .12s; }
     #hp-player .hpfill { background: #4a90d9; }
     #hp-enemy  .hpfill { background: #c0392b; }
+    #stamina-player {
+      position: fixed; top: 38px; left: 16px; width: 260px; height: 8px;
+      background: #2a2a2a; border: 1px solid #555; border-radius: 3px; overflow: hidden;
+    }
+    #stamina-player .stfill { height: 100%; width: 100%; background: #e0c04a; transition: width .1s; }
+    #stamina-player.exhausted .stfill { background: #d04030; }
     .hplabel { position: fixed; top: 38px; color: #aaa; font-size: 12px; }
     #label-player { left: 18px; }
     #label-enemy  { right: 18px; }
@@ -57,7 +63,8 @@
   <div id="app"></div>
   <div id="hp-player" class="hpbar"><div class="hpfill"></div></div>
   <div id="hp-enemy"  class="hpbar"><div class="hpfill"></div></div>
-  <div id="label-player" class="hplabel">你(藍)</div>
+  <div id="stamina-player"><div class="stfill"></div></div>
+  <div id="label-player" class="hplabel" style="top: 50px;">你(藍)</div>
   <div id="label-enemy"  class="hplabel">敵人(紅)</div>
   <div id="msg"></div>
   <div id="gold">💰 0</div>
