@@ -270,6 +270,17 @@ function fitShield(src: THREE.Object3D, targetWidth: number): THREE.Group {
   outer.scale.setScalar(scale);
   return outer;
 }
+// 場景道具擺正:縮放到目標高度,底部貼地,水平置中
+function fitProp(src: THREE.Object3D, targetH: number): THREE.Group {
+  const obj = src.clone(true);
+  const box = new THREE.Box3().setFromObject(obj);
+  const g = new THREE.Group();
+  g.add(obj);
+  obj.position.set(-(box.min.x + box.max.x) / 2, -box.min.y, -(box.min.z + box.max.z) / 2);
+  g.scale.setScalar(targetH / (box.max.y - box.min.y));
+  return g;
+}
+
 function staticPart(root: THREE.Object3D, suffix: RegExp): THREE.Mesh | null {
   let found: THREE.Mesh | null = null;
   root.traverse((o) => {
@@ -329,10 +340,18 @@ async function boot() {
     throw e;
   }
 }
+// 場景道具(KayKit Dungeon Remastered=.glb 內嵌貼圖;Halloween Bits=.gltf 外連貼圖)
+const PROP_FILES: Record<string, string> = {
+  barrel_large: 'barrel_large.glb', barrel_small_stack: 'barrel_small_stack.glb',
+  box_large: 'box_large.glb', crates_stacked: 'crates_stacked.glb',
+  pillar: 'pillar.glb', column: 'column.glb', torch_lit: 'torch_lit.glb',
+  skull: 'skull.gltf', bone_A: 'bone_A.gltf', ribcage: 'ribcage.gltf',
+};
+
 async function bootInner() {
   await RAPIER.init();
   const loader = new GLTFLoader();
-  // 武器/盾模型都小,全載;角色 GLB 一隻 ~4MB,只載本場要用的兩隻
+  // 武器/盾/道具模型都小,全載;角色 GLB 一隻 ~4MB,只載本場要用的兩隻
   const itemNames = [...new Set([
     ...Object.values(WEAPONS).map((w) => w.model),
     ...Object.values(SHIELDS).map((s) => s.model),
@@ -340,17 +359,20 @@ async function bootInner() {
   // 關卡制:只能打到已解鎖的最高關
   const foeIdx = Math.min((parseInt(localStorage.getItem('enemyIdx') ?? '0', 10) || 0), SAVE.maxLevel);
   const charKeys = [...new Set(['knight', ENEMY_ROSTER[foeIdx].char])];
+  const propKeys = Object.keys(PROP_FILES);
   const loaded = await Promise.all([
     ...charKeys.map((k) => loader.loadAsync(`models/${CHAR_FILES[k]}`)),
     ...itemNames.map((n) => loader.loadAsync(`models/${n}.gltf`).then((g) => {
       g.scene.traverse((o) => { o.castShadow = true; });
       return g.scene;
     })),
+    ...propKeys.map((k) => loader.loadAsync(`models/${PROP_FILES[k]}`).then((g) => g.scene)),
   ]);
   const chars: Record<string, GLTF> = {};
   charKeys.forEach((k, i) => { chars[k] = loaded[i] as GLTF; });
   const items: Record<string, THREE.Object3D> = {};
   itemNames.forEach((n, i) => { items[n] = loaded[charKeys.length + i] as THREE.Object3D; });
+  propKeys.forEach((k, i) => { items[k] = loaded[charKeys.length + itemNames.length + i] as THREE.Object3D; });
   start({ items, chars });
 }
 boot();
@@ -380,10 +402,13 @@ function start(models: Models) {
   sun.shadow.camera.left = -10; sun.shadow.camera.right = 10;
   sun.shadow.camera.top = 10; sun.shadow.camera.bottom = -10;
   scene.add(sun);
+  // 火把暖光(位置由 buildArena 吸附到火把道具上)
+  const torchLights: THREE.PointLight[] = [];
   for (const [lx, lz] of [[-2.8, -2.8], [2.8, 2.8]] as const) {
     const torch = new THREE.PointLight(0xffaa55, 12, 14, 1.6);
     torch.position.set(lx, 2.2, lz);
     scene.add(torch);
+    torchLights.push(torch);
   }
 
   const stoneTex = makeStoneTexture();
@@ -436,6 +461,78 @@ function start(models: Models) {
       mesh.castShadow = true;
       scene.add(mesh);
       arenaObjs.meshes.push(mesh);
+    }
+
+    // ----- 場地裝飾(純視覺):火把圍場 + 白骨點綴,鬥技場氛圍 -----
+    const torchCount = 6;
+    for (let i = 0; i < torchCount; i++) {
+      const phi = offset + (i + 0.5) * (Math.PI * 2) / torchCount;
+      const tx = Math.cos(phi) * (apothem - 0.45), ty = Math.sin(phi) * (apothem - 0.45);
+      const torch = fitProp(models.items.torch_lit, 1.15);
+      torch.position.set(tx, 0, -ty);
+      scene.add(torch);
+      arenaObjs.meshes.push(torch);
+      if (i === 0) torchLights[0].position.set(tx, 1.7, -ty);
+      if (i === 3) torchLights[1].position.set(tx, 1.7, -ty);
+    }
+    const boneKeys = ['skull', 'bone_A', 'ribcage'];
+    for (let i = 0; i < 6; i++) {
+      const phi = Math.random() * Math.PI * 2;
+      const rr = apothem - 0.5 - Math.random() * 0.7;
+      const b = fitProp(models.items[boneKeys[i % boneKeys.length]], 0.2 + Math.random() * 0.14);
+      b.position.set(Math.cos(phi) * rr, 0.01, -Math.sin(phi) * rr);
+      b.rotation.y = Math.random() * Math.PI * 2;
+      scene.add(b);
+      arenaObjs.meshes.push(b);
+    }
+  }
+
+  // ----- 障礙物(有物理):桶/箱/柱,後面的關卡才出現 -----
+  const OBSTACLE_DEFS = [
+    { model: 'barrel_large', r: 0.5, h: 1.0 },
+    { model: 'barrel_small_stack', r: 0.55, h: 1.15 },
+    { model: 'box_large', r: 0.55, h: 1.0 },
+    { model: 'crates_stacked', r: 0.6, h: 1.5 },
+    { model: 'pillar', r: 0.5, h: 2.2 },
+    { model: 'column', r: 0.45, h: 2.3 },
+  ];
+  const obstacleObjs: { bodies: RAPIER.RigidBody[]; meshes: THREE.Object3D[] } = { bodies: [], meshes: [] };
+  function obstacleCountFor(levelIdx: number): number {
+    if (levelIdx <= 3) return 0;             // 前四關乾淨場地
+    if (levelIdx <= 7) return 2 + (levelIdx % 2);
+    return 4 + (levelIdx % 2);
+  }
+  function buildObstacles(count: number) {
+    for (const b of obstacleObjs.bodies) world.removeRigidBody(b);
+    for (const m of obstacleObjs.meshes) scene.remove(m);
+    obstacleObjs.bodies.length = 0;
+    obstacleObjs.meshes.length = 0;
+    const { n, r: R } = ARENA_SHAPES[arenaShape];
+    const apothem = R * Math.cos(Math.PI / n);
+    const placed: { x: number; y: number }[] = [];
+    const spawns = [{ x: -2.6, y: 0 }, { x: 2.6, y: 0.8 }];
+    for (let i = 0; i < count; i++) {
+      const def = OBSTACLE_DEFS[Math.floor(Math.random() * OBSTACLE_DEFS.length)];
+      let px = 0, py = 0, ok = false;
+      for (let t = 0; t < 40 && !ok; t++) {
+        const a = Math.random() * Math.PI * 2;
+        const rr = Math.random() * (apothem - 1.6);
+        px = Math.cos(a) * rr; py = Math.sin(a) * rr;
+        ok = spawns.every((s) => Math.hypot(px - s.x, py - s.y) > 2.0)
+          && placed.every((q) => Math.hypot(px - q.x, py - q.y) > 1.6);
+      }
+      if (!ok) continue;
+      placed.push({ x: px, y: py });
+      const body = world.createRigidBody(RAPIER.RigidBodyDesc.fixed().setTranslation(px, py));
+      const col = world.createCollider(RAPIER.ColliderDesc.ball(def.r).setCollisionGroups(WALL_GROUPS), body);
+      wallColHandles.add(col.handle); // 撞到有金屬/悶擊聲
+      obstacleObjs.bodies.push(body);
+      const mesh = fitProp(models.items[def.model], def.h);
+      mesh.position.set(px, 0, -py);
+      mesh.rotation.y = Math.random() * Math.PI * 2;
+      mesh.traverse((o) => { o.castShadow = true; });
+      scene.add(mesh);
+      obstacleObjs.meshes.push(mesh);
     }
   }
   buildArena(arenaShape);
@@ -918,6 +1015,7 @@ function start(models: Models) {
     setEnemyVisible(true);
     arenaShape = randomShape(); // 每場隨機場地
     buildArena(arenaShape);
+    buildObstacles(obstacleCountFor(enemyIdx)); // 後面的關卡才有障礙物
     restart();
   }
   function setOpp(delta: number) {
@@ -1199,7 +1297,7 @@ function start(models: Models) {
         // 表演賽:不發賞金不顯示訊息,歡呼完換個場地重打一場,無限循環
         clearTimeout(menuTimer);
         menuTimer = window.setTimeout(() => {
-          if (mode === 'attract') { arenaShape = randomShape(); buildArena(arenaShape); restart(); }
+          if (mode === 'attract') { arenaShape = randomShape(); buildArena(arenaShape); buildObstacles(3); restart(); }
         }, 2400);
         return;
       }
@@ -1461,6 +1559,7 @@ function start(models: Models) {
   if (mode === 'attract') {
     battleBtnsEl.classList.add('hidden');
     setEnemyVisible(true);
+    buildObstacles(3);
     restart();
   } else if (mode === 'menu') openMenu();
   else startBattle();
