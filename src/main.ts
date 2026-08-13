@@ -37,21 +37,35 @@ type ShieldDef = { model: string; halfWidth: number; density: number };
 const WEAPONS: Record<string, WeaponDef> = {
   sword2h: { model: 'sword_2handed', length: 1.6 * S, density: 0.25 / (S * S), dmgMult: 1.0 },
   axe2h: { model: 'axe_2handed', length: 1.35 * S, density: 0.5 / (S * S), dmgMult: 1.7 },
+  sword1h: { model: 'sword_1handed', length: 1.15 * S, density: 0.18 / (S * S), dmgMult: 0.8 },  // 短劍:快但輕
+  axe1h: { model: 'axe_1handed', length: 1.1 * S, density: 0.35 / (S * S), dmgMult: 1.3 },
+  staff: { model: 'staff', length: 1.7 * S, density: 0.2 / (S * S), dmgMult: 0.85 },             // 法杖:超長桿
 };
 const SHIELDS: Record<string, ShieldDef> = {
   round: { model: 'shield_round', halfWidth: 0.46 * S, density: 0.5 / (S * S) },
   spikes: { model: 'shield_spikes', halfWidth: 0.43 * S, density: 0.65 / (S * S) },
+  square: { model: 'shield_square', halfWidth: 0.42 * S, density: 0.55 / (S * S) },
+  badge: { model: 'shield_badge', halfWidth: 0.34 * S, density: 0.4 / (S * S) },
 };
+
+// ---------- 敵人配置輪換(按 N 換下一個對手) ----------
+const ENEMY_ROSTER = [
+  { char: 'barbarian', label: '野蠻人', weapon: 'axe2h', shield: 'spikes', tint: 0xff5544 },
+  { char: 'rogue', label: '盜賊', weapon: 'sword1h', shield: 'badge', tint: 0xdd4466 },
+  { char: 'rogueHooded', label: '刺客', weapon: 'axe1h', shield: 'square', tint: 0x995544 },
+  { char: 'mage', label: '法師', weapon: 'staff', shield: 'round', tint: 0xcc55cc },
+] as const;
 
 // ---------- 場地形狀(按 1-4 切換,記住選擇) ----------
 // r = 外接圓半徑。挑法:垂直方向邊距(apothem)都 ≥5.5,
 // 出生點(±2.2)到牆的餘裕(3.3)才會大於武器總觸及(~3.2),
 // 出生原地空揮不卡牆;同時塞得進鏡頭(垂直半視野 ~6)。
+// 鏡頭改為動態跟隨後,場地不用塞進固定視野,可以放大
 const ARENA_SHAPES: Record<string, { n: number; offset: number; r: number; label: string }> = {
-  circle: { n: 40, offset: 0, r: 5.5, label: '圓形' },
-  square: { n: 4, offset: Math.PI / 4, r: 7.78, label: '方形' },
-  hex: { n: 6, offset: 0, r: 6.35, label: '六角' },
-  oct: { n: 8, offset: Math.PI / 8, r: 5.95, label: '八角' },
+  circle: { n: 40, offset: 0, r: 7.0, label: '圓形' },
+  square: { n: 4, offset: Math.PI / 4, r: 9.0, label: '方形' },
+  hex: { n: 6, offset: 0, r: 7.5, label: '六角' },
+  oct: { n: 8, offset: Math.PI / 8, r: 7.2, label: '八角' },
 };
 const SHAPE_KEYS: Record<string, string> = { '1': 'circle', '2': 'square', '3': 'hex', '4': 'oct' };
 
@@ -160,25 +174,30 @@ function makeStoneTexture(): THREE.CanvasTexture {
 
 type Models = {
   items: Record<string, THREE.Object3D>;
-  knight: GLTF;
-  barbarian: GLTF;
+  chars: Record<string, GLTF>;
 };
 
 async function boot() {
   await RAPIER.init();
   const loader = new GLTFLoader();
-  const itemNames = ['sword_2handed', 'axe_2handed', 'shield_round', 'shield_spikes'];
-  const [knight, barbarian, ...itemScenes] = await Promise.all([
-    loader.loadAsync('/models/Knight.glb'),
-    loader.loadAsync('/models/Barbarian.glb'),
+  const itemNames = ['sword_2handed', 'axe_2handed', 'sword_1handed', 'axe_1handed', 'staff', 'shield_round', 'shield_spikes', 'shield_square', 'shield_badge'];
+  const charFiles: Record<string, string> = {
+    knight: 'Knight.glb', barbarian: 'Barbarian.glb',
+    mage: 'Mage.glb', rogue: 'Rogue.glb', rogueHooded: 'Rogue_Hooded.glb',
+  };
+  const charKeys = Object.keys(charFiles);
+  const loaded = await Promise.all([
+    ...charKeys.map((k) => loader.loadAsync(`/models/${charFiles[k]}`)),
     ...itemNames.map((n) => loader.loadAsync(`/models/${n}.gltf`).then((g) => {
       g.scene.traverse((o) => { o.castShadow = true; });
       return g.scene;
     })),
   ]);
+  const chars: Record<string, GLTF> = {};
+  charKeys.forEach((k, i) => { chars[k] = loaded[i] as GLTF; });
   const items: Record<string, THREE.Object3D> = {};
-  itemNames.forEach((n, i) => { items[n] = itemScenes[i]; });
-  start({ items, knight, barbarian });
+  itemNames.forEach((n, i) => { items[n] = loaded[charKeys.length + i] as THREE.Object3D; });
+  start({ items, chars });
 }
 boot();
 
@@ -193,16 +212,19 @@ function start(models: Models) {
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0x15130f);
 
+  // 動態鏡頭:跟著兩人中點,依距離拉近拉遠(近戰湊近、拉開升高)
   const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 100);
-  camera.position.set(0, 13, 5);
-  camera.lookAt(0, 0, 0);
+  const camPos = new THREE.Vector3(0, 13, 4.5);
+  const camLook = new THREE.Vector3(0, 0, 0);
+  camera.position.copy(camPos);
+  camera.lookAt(camLook);
 
   scene.add(new THREE.HemisphereLight(0xccccff, 0x443f33, 0.85));
   const sun = new THREE.DirectionalLight(0xfff2e0, 1.3);
   sun.position.set(5, 12, 3);
   sun.castShadow = true;
-  sun.shadow.camera.left = -9; sun.shadow.camera.right = 9;
-  sun.shadow.camera.top = 9; sun.shadow.camera.bottom = -9;
+  sun.shadow.camera.left = -10; sun.shadow.camera.right = 10;
+  sun.shadow.camera.top = 10; sun.shadow.camera.bottom = -10;
   scene.add(sun);
   for (const [lx, lz] of [[-2.8, -2.8], [2.8, 2.8]] as const) {
     const torch = new THREE.PointLight(0xffaa55, 12, 14, 1.6);
@@ -353,7 +375,7 @@ function start(models: Models) {
       this.model.traverse((o) => {
         const m = o as THREE.Mesh;
         if (!m.isMesh) return;
-        if (/(Sword|Shield|Axe|Bow|Mug|Offhand|ArmLeft|ArmRight)/i.test(m.name)) {
+        if (/(Sword|Shield|Axe|Bow|Mug|Offhand|Dagger|Knife|Staff|Wand|Spellbook|Throwable|ArmLeft|ArmRight)/i.test(m.name)) {
           m.visible = false;
           return;
         }
@@ -366,7 +388,7 @@ function start(models: Models) {
       this.rig.add(this.model);
       scene.add(this.mesh);
 
-      for (const suffix of [/Body$/, /Head$/, /(Helmet|Hat)$/, /LegLeft$/, /LegRight$/]) {
+      for (const suffix of [/Body$/, /Head(_Hooded)?$/, /(Helmet|Hat)$/, /LegLeft$/, /LegRight$/]) {
         const part = staticPart(char.scene, suffix);
         if (!part) continue;
         part.geometry.computeBoundingBox();
@@ -522,9 +544,12 @@ function start(models: Models) {
   }
 
   // 出生點刻意不完全對稱:完全對稱會讓兩把武器「刃尖頂刃尖」形成穩定僵局
-  // 出生點:離牆(3.5)>武器觸及(~3.05)>離對手身體(3.4)要同時成立,出生原地空揮才不卡牆也砍不到人
-  const player = new Knight(-2.0, 0, 0, 0x5588ff, 0, true, models.knight, 'sword2h', 'round');
-  const enemy = new Knight(2.0, 0.8, Math.PI + 0.3, 0xff5544, 1, false, models.barbarian, 'axe2h', 'spikes');
+  // 出生點:離牆 > 武器觸及(~3.05) > 離對手身體,出生原地空揮才不卡牆也砍不到人
+  const enemyIdx = (parseInt(localStorage.getItem('enemyIdx') ?? '0', 10) || 0) % ENEMY_ROSTER.length;
+  const foe = ENEMY_ROSTER[enemyIdx];
+  const player = new Knight(-2.6, 0, 0, 0x5588ff, 0, true, models.chars.knight, 'sword2h', 'round');
+  const enemy = new Knight(2.6, 0.8, Math.PI + 0.3, foe.tint, 1, false, models.chars[foe.char], foe.weapon, foe.shield);
+  document.getElementById('label-enemy')!.textContent = `敵人(${foe.label})`;
   (window as unknown as Record<string, unknown>).__game = { player, enemy, CFG, WEAPONS, SHIELDS };
 
   // ---------- 噴血粒子 ----------
@@ -695,6 +720,11 @@ function start(models: Models) {
     const k = e.key.toLowerCase();
     keys.add(k);
     if (k === 'r') restart();
+    if (k === 'n') {
+      // 換下一個對手:重載頁面重建(角色/武器/碎裂部件全綁在建構期)
+      localStorage.setItem('enemyIdx', String((enemyIdx + 1) % ENEMY_ROSTER.length));
+      location.reload();
+    }
     if (SHAPE_KEYS[k]) {
       arenaShape = SHAPE_KEYS[k];
       buildArena(arenaShape);
@@ -771,6 +801,18 @@ function start(models: Models) {
     updateParticles(dt);
     updatePools(dt);
     updateDebris(dt);
+
+    // 動態鏡頭:中點跟隨 + 距離縮放,指數平滑不暈
+    const pp = player.pos, ep = enemy.pos;
+    const midX = (pp.x + ep.x) / 2, midY = (pp.y + ep.y) / 2;
+    const sep = Math.hypot(pp.x - ep.x, pp.y - ep.y);
+    const h = THREE.MathUtils.clamp(8 + sep * 1.1, 10.5, 16.5);
+    const k = 1 - Math.exp(-3 * dt);
+    camPos.lerp(new THREE.Vector3(midX, h, -midY + h * 0.35), k);
+    camLook.lerp(new THREE.Vector3(midX, 0, -midY), k);
+    camera.position.copy(camPos);
+    camera.lookAt(camLook);
+
     renderer.render(scene, camera);
   }
   requestAnimationFrame(frame);
