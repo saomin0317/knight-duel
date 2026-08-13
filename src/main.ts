@@ -65,20 +65,50 @@ const SHIELDS: Record<string, ShieldDef> = {
   spikes: { model: 'shield_spikes', label: '尖刺盾', halfWidth: 0.43 * S, density: 0.65 / (S * S), price: 240 },
 };
 
-// ---------- 敵人階梯(按 N 換下一個):一個比一個強,賞金遞增 ----------
+// ---------- AI 個性:六種進攻策略 ----------
+type AiStyle = 'brawler' | 'guardian' | 'kiter' | 'assassin' | 'berserker' | 'spinner';
+type AiParams = {
+  engage: number;      // 接近到這個距離(×S)就停
+  retreatAt: number;   // 近於這個(×S)就後退
+  swingAt: number;     // 出手距離(×S)
+  swingRate: number;   // 出手頻率倍率
+  spinMargin: number;  // 對手旋轉時的額外安全邊
+  aimLead: number;     // 瞄準偏角(guardian 讓盾側領前)
+  strafe: number;      // 側向遊走強度
+  counterOnly?: boolean; // 只在對手體力低或貼臉才出手
+  kite?: boolean;        // 維持自己武器射程放風箏
+  ambush?: boolean;      // 等對手刀口朝外才出手
+  berserk?: boolean;     // 血越低越兇
+  spinner?: boolean;     // 用旋轉蓄力打法
+};
+const AI_STYLES: Record<AiStyle, AiParams> = {
+  brawler: { engage: 1.7, retreatAt: 0.9, swingAt: 2.9, swingRate: 1.2, spinMargin: 0.3, aimLead: 0, strafe: 0 },
+  guardian: { engage: 1.9, retreatAt: 1.1, swingAt: 2.5, swingRate: 0.75, spinMargin: 0.7, aimLead: 0.4, strafe: 0, counterOnly: true },
+  kiter: { engage: 2.6, retreatAt: 2.0, swingAt: 3.4, swingRate: 1.0, spinMargin: 0.8, aimLead: 0, strafe: 0.6, kite: true },
+  assassin: { engage: 2.0, retreatAt: 1.2, swingAt: 2.8, swingRate: 1.1, spinMargin: 0.6, aimLead: 0, strafe: 1.0, ambush: true },
+  berserker: { engage: 1.6, retreatAt: 0.7, swingAt: 3.0, swingRate: 1.15, spinMargin: 0.2, aimLead: 0, strafe: 0, berserk: true },
+  spinner: { engage: 2.4, retreatAt: 1.4, swingAt: 3.0, swingRate: 1.0, spinMargin: 0.6, aimLead: 0, strafe: 0, spinner: true },
+};
+
+// ---------- 敵人階梯:12 關,個性/配裝/體型/賞金遞增(後段=重混精英) ----------
 type Foe = {
   char: string; label: string; weapon: string; shield: string; tint: number;
   hpMult: number; moveMult: number; swingMult: number; heightMult: number; reward: number;
+  style: AiStyle;
 };
 const ENEMY_ROSTER: Foe[] = [
-  { char: 'skelMinion', label: '骷髏小兵', weapon: 'skelBlade', shield: 'skelSmallA', tint: 0x88ff88, hpMult: 0.7, moveMult: 0.85, swingMult: 0.8, heightMult: 0.85, reward: 40 },
-  { char: 'rogue', label: '盜賊', weapon: 'sword1h', shield: 'badge', tint: 0xdd4466, hpMult: 0.9, moveMult: 1.1, swingMult: 0.9, heightMult: 1.0, reward: 60 },
-  { char: 'skelRogue', label: '骷髏遊蕩者', weapon: 'skelBlade', shield: 'skelSmallB', tint: 0x66dd66, hpMult: 1.1, moveMult: 1.15, swingMult: 1.0, heightMult: 0.95, reward: 85 },
-  { char: 'rogueHooded', label: '刺客', weapon: 'axe1h', shield: 'square', tint: 0x995544, hpMult: 1.3, moveMult: 1.2, swingMult: 1.05, heightMult: 1.0, reward: 115 },
-  { char: 'skelMage', label: '骷髏法師', weapon: 'skelStaff', shield: 'skelSmallB', tint: 0x55ccbb, hpMult: 1.5, moveMult: 1.0, swingMult: 1.1, heightMult: 1.0, reward: 150 },
-  { char: 'barbarian', label: '野蠻人', weapon: 'axe2h', shield: 'spikes', tint: 0xff5544, hpMult: 1.8, moveMult: 1.0, swingMult: 1.15, heightMult: 1.05, reward: 190 },
-  { char: 'mage', label: '法師', weapon: 'staff', shield: 'round', tint: 0xcc55cc, hpMult: 2.1, moveMult: 1.05, swingMult: 1.25, heightMult: 1.0, reward: 240 },
-  { char: 'skelWarrior', label: '骷髏戰士', weapon: 'skelAxe', shield: 'skelLargeA', tint: 0x44ff99, hpMult: 2.5, moveMult: 1.05, swingMult: 1.3, heightMult: 1.08, reward: 300 },
+  { char: 'skelMinion', label: '骷髏小兵', weapon: 'skelBlade', shield: 'skelSmallA', tint: 0x88ff88, hpMult: 0.7, moveMult: 0.85, swingMult: 0.8, heightMult: 0.85, reward: 40, style: 'brawler' },
+  { char: 'rogue', label: '盜賊', weapon: 'sword1h', shield: 'badge', tint: 0xdd4466, hpMult: 0.9, moveMult: 1.1, swingMult: 0.9, heightMult: 1.0, reward: 60, style: 'assassin' },
+  { char: 'skelRogue', label: '骷髏遊蕩者', weapon: 'skelBlade', shield: 'skelSmallB', tint: 0x66dd66, hpMult: 1.1, moveMult: 1.15, swingMult: 1.0, heightMult: 0.95, reward: 85, style: 'brawler' },
+  { char: 'rogueHooded', label: '刺客', weapon: 'axe1h', shield: 'square', tint: 0x995544, hpMult: 1.3, moveMult: 1.2, swingMult: 1.05, heightMult: 1.0, reward: 115, style: 'assassin' },
+  { char: 'skelMage', label: '骷髏法師', weapon: 'skelStaff', shield: 'skelSmallB', tint: 0x55ccbb, hpMult: 1.5, moveMult: 1.0, swingMult: 1.1, heightMult: 1.0, reward: 150, style: 'kiter' },
+  { char: 'barbarian', label: '野蠻人', weapon: 'axe2h', shield: 'spikes', tint: 0xff5544, hpMult: 1.8, moveMult: 1.0, swingMult: 1.15, heightMult: 1.05, reward: 190, style: 'berserker' },
+  { char: 'mage', label: '法師', weapon: 'staff', shield: 'round', tint: 0xcc55cc, hpMult: 2.1, moveMult: 1.05, swingMult: 1.25, heightMult: 1.0, reward: 240, style: 'kiter' },
+  { char: 'skelWarrior', label: '骷髏戰士', weapon: 'skelAxe', shield: 'skelLargeA', tint: 0x44ff99, hpMult: 2.5, moveMult: 1.05, swingMult: 1.3, heightMult: 1.08, reward: 300, style: 'guardian' },
+  { char: 'rogueHooded', label: '影武者', weapon: 'sword2h', shield: 'badge', tint: 0x333344, hpMult: 1.9, moveMult: 1.1, swingMult: 1.2, heightMult: 1.0, reward: 360, style: 'spinner' },
+  { char: 'barbarian', label: '蠻王', weapon: 'axe2h', shield: 'skelLargeB', tint: 0x882211, hpMult: 2.4, moveMult: 1.15, swingMult: 1.3, heightMult: 1.15, reward: 430, style: 'berserker' },
+  { char: 'mage', label: '大法師', weapon: 'skelStaff', shield: 'round', tint: 0x7722aa, hpMult: 2.6, moveMult: 1.1, swingMult: 1.4, heightMult: 1.05, reward: 500, style: 'kiter' },
+  { char: 'skelWarrior', label: '骷髏王', weapon: 'skelAxe', shield: 'spikes', tint: 0xffcc33, hpMult: 3.0, moveMult: 1.1, swingMult: 1.45, heightMult: 1.15, reward: 600, style: 'guardian' },
 ];
 
 // ---------- 存檔:金幣 / 擁有 / 裝備中 / 戰績 ----------
@@ -449,13 +479,14 @@ function start(models: Models) {
     maxHp: number;
     moveMult: number;
     swingMult: number;
+    aiStyle: AiStyle;
     stamina = CFG.staminaMax;
     exhausted = false;
 
     constructor(x: number, y: number, angle: number, capeTint: number,
       public index: number, public isPlayer: boolean,
       char: GLTF, weaponKey: string, shieldKey: string,
-      stats?: { hpMult?: number; moveMult?: number; swingMult?: number; heightMult?: number }) {
+      stats?: { hpMult?: number; moveMult?: number; swingMult?: number; heightMult?: number; style?: AiStyle }) {
       this.spawn = { x, y, angle };
       this.weapon = WEAPONS[weaponKey];
       this.shield = SHIELDS[shieldKey];
@@ -463,6 +494,7 @@ function start(models: Models) {
       this.hp = this.maxHp;
       this.moveMult = stats?.moveMult ?? 1;
       this.swingMult = stats?.swingMult ?? 1;
+      this.aiStyle = stats?.style ?? 'brawler';
       const groups = partGroups(index);
 
       this.rb = world.createRigidBody(
@@ -1229,54 +1261,51 @@ function start(models: Models) {
     updateHpBars();
   }
 
-  // ---------- 簡單 AI(泛化:self 打 target,attract 模式兩邊都掛 AI) ----------
+  // ---------- 個性化 AI(self 打 target;attract 模式兩邊都掛) ----------
   function updateAI(self: Knight, target: Knight, dt: number) {
+    const P = AI_STYLES[self.aiStyle];
     const p = target.pos, e = self.pos;
     const dx = p.x - e.x, dy = p.y - e.y;
     const dist = Math.hypot(dx, dy);
+    const ux = dx / dist, uy = dy / dist; // 指向對手的單位向量
     const targetAngle = Math.atan2(dy, dx);
-    const diff = wrapAngle(targetAngle - self.angle);
+    const diff = wrapAngle(targetAngle - self.angle + P.aimLead);
+    // 狂暴:血越低越快越兇(最多 +70%)
+    const rage = P.berserk ? 1 + (1 - self.hp / self.maxHp) * 0.7 : 1;
 
     // 斷臂逃命:持劍手沒了打不了人,能逃多遠逃多遠
     if (!self.swordArm.joint) {
-      const ux = -dx / dist, uy = -dy / dist;
-      self.rb.applyImpulse({ x: ux * CFG.moveForce * 1.2 * dt, y: uy * CFG.moveForce * 1.2 * dt }, true);
+      self.rb.applyImpulse({ x: -ux * CFG.moveForce * 1.2 * dt, y: -uy * CFG.moveForce * 1.2 * dt }, true);
       const w0 = self.rb.angvel();
       self.turn(diff * 4 - w0 * 1.5, dt);
       return;
     }
 
-    // 反陀螺:對手的刀還在轉、或快要能轉(力竭尾聲體力回升)就退到掃不到的地方等
+    // 反陀螺:對手的刀還在轉就退到掃不到的地方等;狂暴殘血時不管,直接撲
     const targetSpinning = Math.abs(target.rb.angvel()) > 2.5 || (target.exhausted && target.stamina >= 45);
-    const spinReach = 0.49 + CFG.bladeStart + target.weapon.length + 0.5;
-    if (targetSpinning) {
+    const suicidal = P.berserk && self.hp < self.maxHp * 0.3;
+    if (targetSpinning && !suicidal && !P.spinner) {
       const w = self.rb.angvel();
       self.turn(diff * 6 - w * 1.5, dt); // 面向盯著
-      if (dist < spinReach) {
-        // 直線遠離(不管面向);被牆擋住退不動就往側面滑
-        const ux = -dx / dist, uy = -dy / dist;
-        self.rb.applyImpulse({ x: ux * CFG.moveForce * self.moveMult * dt, y: uy * CFG.moveForce * self.moveMult * dt }, true);
+      if (dist < 0.49 + CFG.bladeStart + target.weapon.length + P.spinMargin) {
+        self.rb.applyImpulse({ x: -ux * CFG.moveForce * self.moveMult * dt, y: -uy * CFG.moveForce * self.moveMult * dt }, true);
         const lv2 = self.rb.linvel();
         if (Math.hypot(lv2.x, lv2.y) < 0.3) {
-          const side = Math.sin(clock * 2) > 0 ? 1 : -1; // 穩定的側向,不亂抖
+          const side = Math.sin(clock * 2) > 0 ? 1 : -1;
           self.rb.applyImpulse({ x: -uy * side * CFG.moveForce * dt, y: ux * side * CFG.moveForce * dt }, true);
         }
       }
       return; // 不出手也不進場,等
     }
 
-    // 懲罰模式:對手力竭(刀也停了)→全速撲上去加倍出手;
-    // 體力回到 45 就提前撤(等刀真的轉起來才跑會被蹭到,物理上逃不掉)
+    // 懲罰模式:對手力竭(刀也停了)→全速撲上去加倍出手;體力回 45 提前撤
     if (target.exhausted && target.stamina < 45) {
       const w = self.rb.angvel();
       self.turn(diff * 8 - w * 1.5, dt);
       if (dist > 1.5) {
-        self.rb.applyImpulse({
-          x: (dx / dist) * CFG.moveForce * 1.5 * self.moveMult * dt,
-          y: (dy / dist) * CFG.moveForce * 1.5 * self.moveMult * dt,
-        }, true);
+        self.rb.applyImpulse({ x: ux * CFG.moveForce * 1.5 * self.moveMult * dt, y: uy * CFG.moveForce * 1.5 * self.moveMult * dt }, true);
       }
-      self.swingTimer -= dt * 2;
+      self.swingTimer -= dt * 2 * rage;
       if (self.swingTimer <= 0 && dist < 2.9 * S) {
         self.swingDir *= -1;
         self.rb.applyTorqueImpulse(self.swingDir * CFG.aiSwingImpulse * self.swingMult, true);
@@ -1286,21 +1315,57 @@ function start(models: Models) {
       return;
     }
 
-    self.swingTimer -= dt;
-    if (self.swingTimer <= 0 && dist < 2.8 * S) {
+    // 陀螺鏡像:用玩家的蓄力旋轉打法,還會管理體力
+    if (P.spinner) {
+      if (self.exhausted || self.stamina < 25) {
+        // 沒力了:拉開喘氣
+        self.rb.applyImpulse({ x: -ux * CFG.moveForce * self.moveMult * dt, y: -uy * CFG.moveForce * self.moveMult * dt }, true);
+      } else {
+        self.turn(CFG.turnTorque * 0.9 * self.swingDir, dt); // 持續蓄轉
+        if (dist > P.engage * S) {
+          self.rb.applyImpulse({ x: ux * CFG.moveForce * 0.8 * self.moveMult * dt, y: uy * CFG.moveForce * 0.8 * self.moveMult * dt }, true);
+        }
+      }
+      return;
+    }
+
+    // 側向遊走(刺客/風箏手)
+    if (P.strafe > 0 && dist < 4.5 * S) {
+      const sway = Math.sin(clock * 1.8 + self.index * 3);
+      self.rb.applyImpulse({ x: -uy * sway * P.strafe * CFG.moveForce * 0.5 * dt, y: ux * sway * P.strafe * CFG.moveForce * 0.5 * dt }, true);
+    }
+
+    // 出手判斷:距離 + 個性條件
+    const bladeOff = Math.abs(wrapAngle(target.swordArm.rb.rotation() - Math.atan2(-dy, -dx)));
+    const opening = bladeOff > 1.1; // 對手刀口偏離自己 60°+
+    let canSwing = dist < P.swingAt * S;
+    if (P.counterOnly) canSwing = canSwing && (target.stamina < 55 || dist < 1.5 * S);
+    if (P.ambush) canSwing = canSwing && opening;
+
+    self.swingTimer -= dt * P.swingRate * rage;
+    if (self.swingTimer <= 0 && canSwing) {
       self.swingDir *= -1;
-      self.rb.applyTorqueImpulse(self.swingDir * CFG.aiSwingImpulse * self.swingMult * (self.exhausted ? 0.3 : 1), true);
+      self.rb.applyTorqueImpulse(self.swingDir * CFG.aiSwingImpulse * self.swingMult * (self.exhausted ? 0.3 : 1) * rage, true);
       self.swingTimer = (1.1 + Math.random() * 0.8) / self.swingMult;
       self.lastSwingAt = clock;
     } else if (clock - self.lastSwingAt > 0.5) {
       const w = self.rb.angvel();
       self.turn(diff * 6 - w * 1.5, dt);
     }
-    if (dist > 2.0 * S && Math.abs(diff) < 0.7) self.forward(CFG.moveForce * self.moveMult, dt);
-    else if (dist < 1.2 * S) self.forward(-CFG.moveForce * 0.6, dt);
 
+    // 走位:風箏手卡自己武器射程;其他人照個性的進退距離
+    if (P.kite) {
+      const pref = 0.49 + CFG.bladeStart + self.weapon.length - 0.4;
+      if (dist > pref + 0.7 && Math.abs(diff) < 0.9) self.forward(CFG.moveForce * self.moveMult * rage, dt);
+      else if (dist < pref - 0.4) self.rb.applyImpulse({ x: -ux * CFG.moveForce * self.moveMult * dt, y: -uy * CFG.moveForce * self.moveMult * dt }, true);
+    } else {
+      if (dist > P.engage * S && Math.abs(diff) < 0.7) self.forward(CFG.moveForce * self.moveMult * rage, dt);
+      else if (dist < P.retreatAt * S) self.forward(-CFG.moveForce * 0.6, dt);
+    }
+
+    // 解僵局:想前進卻推不動→往側面繞開
     const lv = self.rb.linvel();
-    if (dist > 2.0 * S && Math.hypot(lv.x, lv.y) < 0.4) self.stuckTime += dt;
+    if (dist > P.engage * S && Math.hypot(lv.x, lv.y) < 0.4) self.stuckTime += dt;
     else self.stuckTime = 0;
     if (self.stuckTime > 0.7) {
       const side = Math.random() < 0.5 ? 1 : -1;
