@@ -132,74 +132,12 @@
     }
     #touch-controls button.on { background: rgba(150,55,37,.8); }
     #rotate-hint {
-      display: none; position: fixed; top: 60px; left: 50%; transform: translateX(-50%);
+      display: none; position: fixed; top: 96px; left: 50%; transform: translateX(-50%);
       background: rgba(0,0,0,.75); color: #ffd766; padding: 8px 18px; border-radius: 8px;
       font-size: 14px; z-index: 40; pointer-events: none;
     }
     @media (pointer: coarse) and (orientation: portrait) { #rotate-hint { display: block; } }
-    /* 小螢幕版面 */
-    @media (max-width: 700px) {
-      .hpbar { width: 30vw; }
-      #stamina-player { width: 30vw; }
-      .hplabel { font-size: 10px; }
-      #menu-title { font-size: 24px; top: 12px; }
-      #ts-name { font-size: 42px; letter-spacing: 2px; }
-      #ts-sub { font-size: 13px; letter-spacing: 4px; }
-      #btn-start { font-size: 20px; padding: 11px 44px; }
-      #ts-links { font-size: 12px; bottom: 74px; }
-      #ts-rating .rtext { font-size: 9px; }
-      #ts-rating img { height: 40px !important; }
-      #shop { width: min(320px, 62vw); top: 48px; right: 6px; max-height: calc(100vh - 170px); z-index: 30; padding: 10px 12px; }
-      .sname { width: 60px; font-size: 12px; }
-      .thumb { width: 34px; height: 34px; }
-      #account { width: 150px; font-size: 12px; top: 70px; left: 6px; padding: 8px 10px; }
-      #hero-label { display: none; }
-      #hint { display: none; }
-      #btn-fight { font-size: 18px; padding: 10px 30px; }
-      #menu-bottom { bottom: 100px; gap: 8px; }
-      #opp-select { font-size: 13px; }
-      #gold { font-size: 15px; }
-    }
-    /* 觸控裝置通用:戰鬥按鈕移右上讓出拇指區;藏鍵盤提示;聲音鈕移到金幣下方 */
-    @media (pointer: coarse) {
-      #battle-btns { bottom: auto; top: 56px; right: 8px; gap: 5px; }
-      #battle-btns button { padding: 6px 12px; font-size: 12px; }
-      #hint { display: none; }
-      #hero-label { display: none; }
-      #btn-sound { top: 46px; left: 50%; transform: translateX(-17px); }
-    }
-    /* 手機橫向(矮螢幕):整體壓縮 */
-    @media (max-height: 520px) {
-      #menu-title { font-size: 20px; top: 6px; }
-      #ts-name { font-size: 40px; }
-      #gold { font-size: 15px; top: 10px; }
-      .hplabel { font-size: 10px; }
-      #shop { top: 42px; width: 300px; max-height: calc(100vh - 58px); padding: 8px 12px; }
-      #shop h2 { font-size: 14px; margin-bottom: 2px; }
-      #shop h3 { margin: 6px 0 4px; font-size: 12px; }
-      .srow { padding: 2px 0; font-size: 12px; }
-      .thumb { width: 30px; height: 30px; }
-      #account { top: 42px; width: 150px; padding: 6px 10px; font-size: 12px; }
-      #account button { padding: 5px 0; margin: 4px 0; font-size: 12px; }
-      #account h4 { margin: 0 0 4px; }
-      #menu-bottom { bottom: 12px; gap: 6px; }
-      #btn-fight { font-size: 17px; padding: 8px 28px; }
-      #opp-select { font-size: 12px; }
-      #ts-links { bottom: 64px; font-size: 12px; }
-      #ts-rating img { height: 38px !important; }
-      #ts-rating .rtext { font-size: 9px; line-height: 1.5; }
-    }
-    /* 手機直向:開場排版 */
-    @media (max-width: 480px) {
-      #ts-name { font-size: 32px; letter-spacing: 1px; white-space: nowrap; }
-      #ts-sub { font-size: 12px; letter-spacing: 3px; white-space: nowrap; }
-      #ts-links { bottom: 138px; }
-      #ts-rating { width: 88vw; }
-      #ts-rating .rtext { font-size: 9px; line-height: 1.5; }
-    }
-    /* 主畫面模式:戰鬥 HUD(血條/體力/標籤)全藏,右手前後鍵也不需要 */
-    body.ui-menu .hpbar, body.ui-menu #stamina-player, body.ui-menu .hplabel { display: none; }
-    body.ui-menu .tc-r { display: none; }
+
     /* 開場畫面 */
     #titlescreen {
       position: fixed; inset: 0; z-index: 50;
@@ -255,6 +193,76 @@
       left: 50%; transform: translateX(-50%);
     }
     #ts-rating .rtext { font-size: 11px; color: #998; line-height: 1.6; text-align: left; }
+    /* 小螢幕版面 */
+    @media (max-width: 700px) {
+      .hpbar { width: 30vw; }
+      #stamina-player { width: 30vw; }
+      .hplabel { font-size: 10px; }
+      #menu-title { font-size: 24px; top: 12px; }
+      #ts-name { font-size: 42px; letter-spacing: 2px; }
+      #ts-sub { font-size: 13px; letter-spacing: 4px; }
+      #btn-start { font-size: 20px; padding: 11px 44px; }
+      #ts-links { font-size: 12px; bottom: 74px; }
+      #ts-rating .rtext { font-size: 9px; }
+      #ts-rating img { height: 40px !important; }
+      #shop { width: min(320px, 62vw); top: 48px; right: 6px; max-height: calc(100vh - 170px); z-index: 30; padding: 10px 12px; }
+      .sname { width: 60px; font-size: 12px; }
+      .thumb { width: 34px; height: 34px; }
+      #account { width: 150px; font-size: 12px; top: 70px; left: 6px; padding: 8px 10px; }
+      #hero-label { display: none; }
+      #hint { display: none; }
+      #btn-fight { font-size: 18px; padding: 10px 30px; }
+      #menu-bottom { bottom: 100px; gap: 8px; }
+      #opp-select { font-size: 13px; }
+      #gold { font-size: 15px; }
+    }
+    /* 觸控裝置通用:戰鬥按鈕移右上讓出拇指區;藏鍵盤提示;聲音鈕移到金幣下方 */
+    @media (pointer: coarse) {
+      #battle-btns { bottom: auto; top: 56px; right: 8px; gap: 5px; }
+      #battle-btns button { padding: 6px 12px; font-size: 12px; }
+      #hint { display: none; }
+      #hero-label { display: none; }
+      #btn-sound { top: 46px; left: 50%; transform: translateX(-17px); }
+    }
+    /* 手機橫向(矮螢幕):整體壓縮;開場改角落佈局(分級左下/連結右下,中央留給按鈕) */
+    @media (max-height: 520px) {
+      #menu-title { font-size: 20px; top: 6px; }
+      #titlescreen { gap: 8px; }
+      #ts-name { font-size: 30px; letter-spacing: 2px; }
+      #ts-sub { font-size: 12px; letter-spacing: 3px; }
+      #btn-start { font-size: 18px; padding: 9px 34px; margin-top: 10px; }
+      .install-btn { font-size: 12px; padding: 5px 16px; }
+      #ts-rating { left: 10px; right: auto; transform: none; bottom: 8px; width: auto; max-width: 46vw; }
+      #ts-links { left: auto; right: 12px; transform: none; bottom: 12px; }
+      #menu-bottom { left: calc(50% - 80px); }
+      #gold { font-size: 15px; top: 10px; }
+      .hplabel { font-size: 10px; }
+      #shop { top: 42px; width: 300px; max-height: calc(100vh - 58px); padding: 8px 12px; }
+      #shop h2 { font-size: 14px; margin-bottom: 2px; }
+      #shop h3 { margin: 6px 0 4px; font-size: 12px; }
+      .srow { padding: 2px 0; font-size: 12px; }
+      .thumb { width: 30px; height: 30px; }
+      #account { top: 42px; width: 150px; padding: 6px 10px; font-size: 12px; }
+      #account button { padding: 5px 0; margin: 4px 0; font-size: 12px; }
+      #account h4 { margin: 0 0 4px; }
+      #menu-bottom { bottom: 12px; gap: 6px; }
+      #btn-fight { font-size: 17px; padding: 8px 28px; }
+      #opp-select { font-size: 12px; }
+
+      #ts-rating img { height: 38px !important; }
+      #ts-rating .rtext { font-size: 9px; line-height: 1.5; }
+    }
+    /* 手機直向:開場排版 */
+    @media (max-width: 480px) {
+      #ts-name { font-size: 32px; letter-spacing: 1px; white-space: nowrap; }
+      #ts-sub { font-size: 12px; letter-spacing: 3px; white-space: nowrap; }
+      #ts-links { bottom: 138px; }
+      #ts-rating { width: 88vw; }
+      #ts-rating .rtext { font-size: 9px; line-height: 1.5; }
+    }
+    /* 主畫面模式:戰鬥 HUD(血條/體力/標籤)全藏,右手前後鍵也不需要 */
+    body.ui-menu .hpbar, body.ui-menu #stamina-player, body.ui-menu .hplabel { display: none; }
+    body.ui-menu .tc-r { display: none; }
   </style>
 </head>
 <body>

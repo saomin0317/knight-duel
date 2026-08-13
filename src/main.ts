@@ -1094,6 +1094,7 @@ function start(models: Models) {
     sessionStorage.setItem('kd_title_seen', '1');
     titleEl.style.display = 'none';
     if (isTouch) document.getElementById('touch-controls')!.style.display = 'block';
+    document.getElementById('btn-sound')!.style.display = '';
     initAudio().then(() => playSfx('clangHeavy', 0.6));
     openMenu(); // 表演賽結束,進主畫面
   });
@@ -1140,6 +1141,8 @@ function start(models: Models) {
     if (!sfxMuted) { initAudio().then(() => playSfx('click', 0.6)); } // 開聲時回饋一聲
   });
   renderSoundBtn();
+  // 開場畫面蓋著時藏起來(會浮在標題上),進入遊戲才出現
+  if (titleEl.style.display !== 'none') soundBtn.style.display = 'none';
 
   document.getElementById('btn-fight')!.addEventListener('click', () => { playSfx('click', 0.6); startBattle(); });
   document.getElementById('btn-restart')!.addEventListener('click', () => { playSfx('click', 0.6); restart(); });
