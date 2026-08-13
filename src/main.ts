@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import RAPIER from '@dimforge/rapier2d-compat';
 
 // ============================================================
@@ -50,9 +51,73 @@ function partGroups(knightIndex: number): number {
 }
 const WALL_GROUPS = (0x4 << 16) | 0xffff;
 
-RAPIER.init().then(start);
+// ---------- 模型自動擺正 ----------
+// KayKit 模型的軸向/原點各自不同,不逐件手調:量 bbox 自動轉正。
+// 回傳的 group:內容沿 +X 從 0 延伸到 targetLen,Y/Z 置中。
+function fitBlade(src: THREE.Object3D, targetLen: number): THREE.Group {
+  const axisRot = new THREE.Group();
+  axisRot.add(src.clone(true));
+  let box = new THREE.Box3().setFromObject(axisRot);
+  const size = box.getSize(new THREE.Vector3());
+  if (size.y >= size.x && size.y >= size.z) axisRot.rotation.z = -Math.PI / 2;       // 最長軸 Y → X
+  else if (size.z >= size.x && size.z >= size.y) axisRot.rotation.y = Math.PI / 2;   // 最長軸 Z → X
+  const flip = new THREE.Group();
+  flip.add(axisRot);
+  box = new THREE.Box3().setFromObject(flip);
+  if (Math.abs(box.min.x) > Math.abs(box.max.x)) flip.rotation.y = Math.PI;          // 刃尖朝 +X
+  const outer = new THREE.Group();
+  outer.add(flip);
+  box = new THREE.Box3().setFromObject(outer);
+  const scale = targetLen / (box.max.x - box.min.x);
+  flip.position.set(-box.min.x, -(box.min.y + box.max.y) / 2, -(box.min.z + box.max.z) / 2);
+  outer.scale.setScalar(scale);
+  return outer;
+}
+// 盾:最薄軸轉到 +X(盾面法線朝敵人),最寬軸轉到 Z(橫向),全置中。
+function fitShield(src: THREE.Object3D, targetWidth: number): THREE.Group {
+  const axisRot = new THREE.Group();
+  axisRot.add(src.clone(true));
+  let box = new THREE.Box3().setFromObject(axisRot);
+  let size = box.getSize(new THREE.Vector3());
+  if (size.y <= size.x && size.y <= size.z) axisRot.rotation.z = Math.PI / 2;        // 最薄軸 Y → X
+  else if (size.z <= size.x && size.z <= size.y) axisRot.rotation.y = Math.PI / 2;   // 最薄軸 Z → X
+  const swap = new THREE.Group();
+  swap.add(axisRot);
+  box = new THREE.Box3().setFromObject(swap);
+  size = box.getSize(new THREE.Vector3());
+  if (size.y > size.z) swap.rotation.x = Math.PI / 2;                                // 寬邊轉到 Z
+  const flip = new THREE.Group();
+  flip.add(swap);
+  box = new THREE.Box3().setFromObject(flip);
+  if ((box.min.x + box.max.x) / 2 < 0) flip.rotation.y = Math.PI;                    // 盾心/尖刺朝 +X
+  const outer = new THREE.Group();
+  outer.add(flip);
+  box = new THREE.Box3().setFromObject(outer);
+  size = box.getSize(new THREE.Vector3());
+  const scale = targetWidth / size.z;
+  flip.position.set(-(box.min.x + box.max.x) / 2, -(box.min.y + box.max.y) / 2, -(box.min.z + box.max.z) / 2);
+  outer.scale.setScalar(scale);
+  return outer;
+}
 
-function start() {
+type Models = { sword2h: THREE.Object3D; axe2h: THREE.Object3D; shieldRound: THREE.Object3D; shieldSpikes: THREE.Object3D };
+
+async function boot() {
+  await RAPIER.init();
+  const loader = new GLTFLoader();
+  const [sword2h, axe2h, shieldRound, shieldSpikes] = await Promise.all(
+    ['sword_2handed', 'axe_2handed', 'shield_round', 'shield_spikes'].map((n) =>
+      loader.loadAsync(`/models/${n}.gltf`).then((g) => {
+        g.scene.traverse((o) => { o.castShadow = true; });
+        return g.scene;
+      })
+    )
+  );
+  start({ sword2h, axe2h, shieldRound, shieldSpikes });
+}
+boot();
+
+function start(models: Models) {
   // ---------- Three.js 場景 ----------
   const renderer = new THREE.WebGLRenderer({ antialias: true });
   renderer.setSize(window.innerWidth, window.innerHeight);
@@ -146,7 +211,8 @@ function start() {
     bodyPreLv = { x: 0, y: 0 };
 
     constructor(x: number, y: number, angle: number, color: number,
-      public index: number, public isPlayer: boolean) {
+      public index: number, public isPlayer: boolean,
+      weaponModel: THREE.Object3D, shieldModel: THREE.Object3D) {
       this.spawn = { x, y, angle };
       const groups = partGroups(index);
 
@@ -237,17 +303,17 @@ function start() {
       const sg = this.swordArm.group;
       wadd(sg, new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.1, 0.1), clothMat), 0.15, 0.74, 0);
       wadd(sg, new THREE.Mesh(new THREE.SphereGeometry(0.08, 8, 6), leatherMat), 0.32, 0.73, 0);
-      wadd(sg, new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.06, 0.06), leatherMat), 0.4, 0.72, 0);
-      wadd(sg, new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.05, 0.3), darkMat), 0.5, 0.72, 0);
-      wadd(sg, new THREE.Mesh(new THREE.BoxGeometry(CFG.swordLength, 0.045, 0.12), bladeMat),
-        CFG.bladeStart + CFG.swordLength / 2, 0.72, 0);
-      // ----- 盾臂外觀:手臂 + 盾面(隊伍色)+ 盾心(鋼) -----
+      // 武器模型(KayKit):從握把 0.25 延伸到刃尖 ~2.15,涵蓋物理劍刃段 0.5~2.1
+      const weapon = fitBlade(weaponModel, CFG.bladeStart + CFG.swordLength - 0.25);
+      weapon.position.set(0.25, 0.72, 0);
+      sg.add(weapon);
+      // ----- 盾臂外觀:手臂 + 手 + 盾模型 -----
       const hg = this.shieldArm.group;
       wadd(hg, new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.1, 0.1), clothMat), 0.14, 0.68, 0);
       wadd(hg, new THREE.Mesh(new THREE.SphereGeometry(0.08, 8, 6), leatherMat), 0.28, 0.67, 0);
-      wadd(hg, new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.55, 0.85), clothMat), 0.48, 0.62, 0);
-      const boss = wadd(hg, new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.13, 0.07, 12), steelMat), 0.56, 0.62, 0);
-      boss.rotation.z = Math.PI / 2;
+      const shield = fitShield(shieldModel, 0.95);
+      shield.position.set(0.5, 0.62, 0);
+      hg.add(shield);
     }
 
     // 建一隻手臂:剛體 + 肩關節(限位 + 馬達彈簧當肌肉)
@@ -359,8 +425,8 @@ function start() {
   }
 
   // 出生點刻意不完全對稱:完全對稱會讓兩把劍「劍尖頂劍尖」形成穩定僵局
-  const player = new Knight(-3, 0, 0, 0x4a90d9, 0, true);
-  const enemy = new Knight(3, 0.8, Math.PI + 0.3, 0xc0392b, 1, false);
+  const player = new Knight(-3, 0, 0, 0x4a90d9, 0, true, models.sword2h, models.shieldRound);
+  const enemy = new Knight(3, 0.8, Math.PI + 0.3, 0xc0392b, 1, false, models.axe2h, models.shieldSpikes);
   // 開 console 可以直接看血量/位置、改 CFG 調手感
   (window as unknown as Record<string, unknown>).__game = { player, enemy, CFG };
 
