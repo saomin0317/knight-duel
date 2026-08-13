@@ -109,6 +109,42 @@ const ARENA_SHAPES: Record<string, { n: number; offset: number; r: number; label
 };
 const SHAPE_KEYS: Record<string, string> = { '1': 'circle', '2': 'square', '3': 'hex', '4': 'oct' };
 
+// ---------- 音效(Kenney CC0):同類多檔隨機 + 音高抖動,避免機關槍感 ----------
+const SFX_FILES: Record<string, string[]> = {
+  clang: ['impactMetal_medium_000', 'impactMetal_medium_001', 'impactMetal_medium_002', 'impactMetal_medium_003', 'impactMetal_medium_004'],
+  clangHeavy: ['impactMetal_heavy_000', 'impactMetal_heavy_001'],
+  flesh: ['impactPunch_medium_000', 'impactPunch_medium_001'],
+  fleshHeavy: ['impactPunch_heavy_000'],
+  chop: ['chop'],
+  coins: ['handleCoins', 'handleCoins2'],
+  click: ['metalClick'],
+};
+let audioCtx: AudioContext | null = null;
+const sfxBuffers = new Map<string, AudioBuffer[]>();
+async function initAudio() {
+  if (audioCtx) return;
+  audioCtx = new AudioContext();
+  await Promise.all(Object.entries(SFX_FILES).map(async ([key, names]) => {
+    const bufs = await Promise.all(names.map(async (n) => {
+      const res = await fetch(`/sfx/${n}.ogg`);
+      return audioCtx!.decodeAudioData(await res.arrayBuffer());
+    }));
+    sfxBuffers.set(key, bufs);
+  }));
+}
+function playSfx(key: string, volume = 1, rate = 1) {
+  if (!audioCtx) return;
+  const bufs = sfxBuffers.get(key);
+  if (!bufs?.length) return;
+  const src = audioCtx.createBufferSource();
+  src.buffer = bufs[(Math.random() * bufs.length) | 0];
+  src.playbackRate.value = rate * (0.92 + Math.random() * 0.16);
+  const gain = audioCtx.createGain();
+  gain.gain.value = volume;
+  src.connect(gain).connect(audioCtx.destination);
+  src.start();
+}
+
 const app = document.getElementById('app')!;
 const msgEl = document.getElementById('msg')!;
 const hpFillPlayer = document.querySelector<HTMLDivElement>('#hp-player .hpfill')!;
@@ -286,6 +322,10 @@ function start(models: Models) {
 
   // ---------- Rapier 物理世界(俯視角 → 沒有重力) ----------
   const world = new RAPIER.World({ x: 0, y: 0 });
+  // 碰撞事件只拿來觸發音效(金屬碰撞聲);判傷仍是幾何判定
+  const eventQueue = new RAPIER.EventQueue(true);
+  const armColHandles = new Set<number>();
+  const wallColHandles = new Set<number>();
 
   // ---------- 場地產生器:N 邊形圍牆(圓=40邊) ----------
   const arenaObjs: { bodies: RAPIER.RigidBody[]; meshes: THREE.Object3D[] } = { bodies: [], meshes: [] };
@@ -297,6 +337,7 @@ function start(models: Models) {
     for (const m of arenaObjs.meshes) scene.remove(m);
     arenaObjs.bodies.length = 0;
     arenaObjs.meshes.length = 0;
+    wallColHandles.clear();
     const { n, offset, r: R } = ARENA_SHAPES[key];
     // 地板:正 n 邊形(CircleGeometry 本來就是多邊形,圓=多邊到看不出來)
     const floor = new THREE.Mesh(new THREE.CircleGeometry(R + 0.3, n === 40 ? 64 : n, offset), floorMat);
@@ -312,7 +353,8 @@ function start(models: Models) {
       const cx = Math.cos(phi) * apothem, cy = Math.sin(phi) * apothem;
       const rot = phi + Math.PI / 2;
       const body = world.createRigidBody(RAPIER.RigidBodyDesc.fixed().setTranslation(cx, cy).setRotation(rot));
-      world.createCollider(RAPIER.ColliderDesc.cuboid(halfLen + 0.05, 0.2).setCollisionGroups(WALL_GROUPS), body);
+      const wc = world.createCollider(RAPIER.ColliderDesc.cuboid(halfLen + 0.05, 0.2).setCollisionGroups(WALL_GROUPS), body);
+      wallColHandles.add(wc.handle);
       arenaObjs.bodies.push(body);
       const mesh = new THREE.Mesh(new THREE.BoxGeometry(halfLen * 2 + 0.1, 0.9, 0.4), wallMat);
       mesh.position.set(cx, 0.45, -cy);
@@ -396,31 +438,34 @@ function start(models: Models) {
       this.swordArm = this.makeArm({ x: 0.05, y: -CFG.shoulder }, CFG.jointLimit);
       this.shieldArm = this.makeArm({ x: 0.05, y: CFG.shoulder }, CFG.shieldLimit);
 
-      world.createCollider(
-        RAPIER.ColliderDesc.cuboid(0.2 * S, 0.05 * S).setTranslation(0.24 * S, 0).setDensity(0.35 / (S * S))
-          .setCollisionGroups(groups),
-        this.swordArm.rb
-      );
-      world.createCollider(
-        RAPIER.ColliderDesc.cuboid(this.weapon.length / 2, 0.04 * S)
-          .setTranslation(CFG.bladeStart + this.weapon.length / 2, 0)
-          .setDensity(this.weapon.density)
-          .setRestitution(0.3)
-          .setCollisionGroups(groups),
-        this.swordArm.rb
-      );
-      world.createCollider(
-        RAPIER.ColliderDesc.cuboid(0.16 * S, 0.05 * S).setTranslation(0.2 * S, 0).setDensity(0.35 / (S * S))
-          .setCollisionGroups(groups),
-        this.shieldArm.rb
-      );
-      world.createCollider(
-        RAPIER.ColliderDesc.cuboid(0.07 * S, this.shield.halfWidth).setTranslation(0.48 * S, 0)
-          .setDensity(this.shield.density)
-          .setRestitution(0.2)
-          .setCollisionGroups(groups),
-        this.shieldArm.rb
-      );
+      const armCols = [
+        world.createCollider(
+          RAPIER.ColliderDesc.cuboid(0.2 * S, 0.05 * S).setTranslation(0.24 * S, 0).setDensity(0.35 / (S * S))
+            .setCollisionGroups(groups).setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS),
+          this.swordArm.rb
+        ),
+        world.createCollider(
+          RAPIER.ColliderDesc.cuboid(this.weapon.length / 2, 0.04 * S)
+            .setTranslation(CFG.bladeStart + this.weapon.length / 2, 0)
+            .setDensity(this.weapon.density)
+            .setRestitution(0.3)
+            .setCollisionGroups(groups).setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS),
+          this.swordArm.rb
+        ),
+        world.createCollider(
+          RAPIER.ColliderDesc.cuboid(0.16 * S, 0.05 * S).setTranslation(0.2 * S, 0).setDensity(0.35 / (S * S))
+            .setCollisionGroups(groups).setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS),
+          this.shieldArm.rb
+        ),
+        world.createCollider(
+          RAPIER.ColliderDesc.cuboid(0.07 * S, this.shield.halfWidth).setTranslation(0.48 * S, 0)
+            .setDensity(this.shield.density)
+            .setRestitution(0.2)
+            .setCollisionGroups(groups).setActiveEvents(RAPIER.ActiveEvents.COLLISION_EVENTS),
+          this.shieldArm.rb
+        ),
+      ];
+      for (const c of armCols) armColHandles.add(c.handle);
 
       // ----- 角色模型 -----
       this.mesh = new THREE.Group();
@@ -542,6 +587,7 @@ function start(models: Models) {
       const sp = arm.rb.translation();
       spawnBlood(to3D({ x: sp.x, y: sp.y }, 0.9 * S), 24);
       spawnPool(to3D({ x: sp.x, y: sp.y }), 0.45);
+      playSfx('chop', 0.9);
     }
 
     // 勝利歡呼
@@ -706,6 +752,7 @@ function start(models: Models) {
           persistSave();
           updateGold();
           renderShop();
+          playSfx('coins', 0.8);
         } else if ((isW ? SAVE.eqW : SAVE.eqS) !== k) {
           if (isW) SAVE.eqW = k; else SAVE.eqS = k;
           persistSave();
@@ -805,10 +852,21 @@ function start(models: Models) {
   });
   window.addEventListener('pointerup', () => { dragX = null; });
 
-  document.getElementById('btn-fight')!.addEventListener('click', startBattle);
-  document.getElementById('btn-restart')!.addEventListener('click', () => restart());
-  document.getElementById('btn-shop2')!.addEventListener('click', () => toggleShop());
-  document.getElementById('btn-menu')!.addEventListener('click', openMenu);
+  // 開場畫面:點「進入遊戲」同時解鎖 AudioContext(瀏覽器要求使用者手勢後才准出聲)
+  const titleEl = document.getElementById('titlescreen')!;
+  if (sessionStorage.getItem('kd_title_seen')) titleEl.style.display = 'none';
+  document.getElementById('btn-start')!.addEventListener('click', () => {
+    sessionStorage.setItem('kd_title_seen', '1');
+    titleEl.style.display = 'none';
+    initAudio().then(() => playSfx('clangHeavy', 0.6));
+  });
+  // 保險:略過開場畫面的重載也要能解鎖音效
+  window.addEventListener('pointerdown', () => { initAudio(); }, { once: true });
+
+  document.getElementById('btn-fight')!.addEventListener('click', () => { playSfx('click', 0.6); startBattle(); });
+  document.getElementById('btn-restart')!.addEventListener('click', () => { playSfx('click', 0.6); restart(); });
+  document.getElementById('btn-shop2')!.addEventListener('click', () => { playSfx('click', 0.6); toggleShop(); });
+  document.getElementById('btn-menu')!.addEventListener('click', () => { playSfx('click', 0.6); openMenu(); });
   document.getElementById('opp-prev')!.addEventListener('click', () => setOpp(-1));
   document.getElementById('opp-next')!.addEventListener('click', () => setOpp(1));
   document.querySelectorAll<HTMLButtonElement>('#arena-select button').forEach((b) => {
@@ -911,6 +969,8 @@ function start(models: Models) {
     }
     spawnBlood(to3D({ x: p.x, y: p.y }, 0.7 * S), 40);
     spawnPool(to3D({ x: p.x, y: p.y }));
+    playSfx('fleshHeavy', 1);
+    playSfx('clangHeavy', 0.8); // 盔甲部件散落
   }
   function updateDebris(dt: number) {
     for (const d of debris) {
@@ -938,6 +998,7 @@ function start(models: Models) {
   // ---------- 傷害判定 ----------
   let gameOver = false;
   let clock = 0;
+  let lastClangAt = -9;
   const lastHitAt = new Map<string, number>();
 
   function updateHpBars() {
@@ -984,6 +1045,7 @@ function start(models: Models) {
     victim.hp = Math.max(0, victim.hp - dmg);
     victim.flashUntil = clock + 0.12;
     spawnBlood(to3D({ x: cx, y: cy }, 0.8 * S), Math.min(30, Math.round(dmg * 1.5)));
+    playSfx(dmg > 45 ? 'fleshHeavy' : 'flesh', Math.min(0.95, 0.35 + dmg / 80));
     updateHpBars();
 
     // 中途斷肢:重擊才有機會,打到哪半邊斷哪隻手(右=持劍手,左=持盾手)
@@ -1010,6 +1072,7 @@ function start(models: Models) {
         persistSave();
         updateGold();
         msgEl.textContent = `你贏了!+${foe.reward} 金幣`;
+        setTimeout(() => playSfx('coins', 0.9), 500);
       }
       msgEl.style.display = 'block';
       // 讓殘骸飛一下,自動回主畫面
@@ -1136,7 +1199,7 @@ function start(models: Models) {
     last = now;
     clock += dt;
 
-    if (mode === 'battle' && !gameOver && !shopOpen) {
+    if (mode === 'battle' && !gameOver && !shopOpen && titleEl.style.display === 'none') {
       if (keys.has('arrowleft') || keys.has('a')) player.turn(CFG.turnTorque, dt);
       if (keys.has('arrowright') || keys.has('d')) player.turn(-CFG.turnTorque, dt);
       if (keys.has('arrowup') || keys.has('w')) player.forward(CFG.moveForce, dt);
@@ -1155,7 +1218,15 @@ function start(models: Models) {
 
     player.captureVel();
     enemy.captureVel();
-    world.step();
+    world.step(eventQueue);
+    // 金屬碰撞聲:武器/盾互撞=鏗鏘,打到牆=悶一點
+    eventQueue.drainCollisionEvents((h1: number, h2: number, started: boolean) => {
+      if (!started || clock - lastClangAt < 0.09) return;
+      const bothArms = armColHandles.has(h1) && armColHandles.has(h2);
+      const armWall = (armColHandles.has(h1) && wallColHandles.has(h2)) || (wallColHandles.has(h1) && armColHandles.has(h2));
+      if (bothArms) { lastClangAt = clock; playSfx('clang', 0.5); }
+      else if (armWall) { lastClangAt = clock; playSfx('clang', 0.25, 0.7); }
+    });
     swordHitCheck(player, enemy);
     swordHitCheck(enemy, player);
 
