@@ -1100,6 +1100,33 @@ function start(models: Models) {
   // 保險:略過開場畫面的重載也要能解鎖音效
   window.addEventListener('pointerdown', () => { initAudio(); }, { once: true });
 
+  // ---------- PWA 安裝按鈕 ----------
+  // Android/Chrome:beforeinstallprompt 可一鍵安裝;iOS 沒有 API,改顯示手動教學
+  let installPrompt: { prompt: () => Promise<unknown> } | null = null;
+  const installBtns = [document.getElementById('btn-install')!, document.getElementById('btn-install2')!];
+  const iosGuide = document.getElementById('ios-guide')!;
+  const isStandalone = matchMedia('(display-mode: standalone)').matches
+    || (navigator as unknown as { standalone?: boolean }).standalone === true;
+  const isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent);
+  function showInstallBtns(show: boolean) {
+    for (const b of installBtns) b.style.display = show ? 'inline-block' : 'none';
+  }
+  window.addEventListener('beforeinstallprompt', (e) => {
+    e.preventDefault();
+    installPrompt = e as unknown as { prompt: () => Promise<unknown> };
+    if (!isStandalone) showInstallBtns(true);
+  });
+  if (!isStandalone && isIOS) showInstallBtns(true);
+  for (const b of installBtns) {
+    b.addEventListener('click', () => {
+      playSfx('click', 0.6);
+      if (installPrompt) { void installPrompt.prompt(); }
+      else iosGuide.classList.add('open');
+    });
+  }
+  document.getElementById('ig-close')!.addEventListener('click', () => iosGuide.classList.remove('open'));
+  window.addEventListener('appinstalled', () => showInstallBtns(false));
+
   // 聲音開關(狀態記在 localStorage)
   const soundBtn = document.getElementById('btn-sound')!;
   function renderSoundBtn() {

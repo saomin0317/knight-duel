@@ -225,6 +225,25 @@
     #loading .ld-name { font-size: 34px; font-weight: 800; color: #ffd766; letter-spacing: 3px; }
     #loading .ld-text { font-size: 14px; color: #998; animation: ldpulse 1.2s ease-in-out infinite; }
     @keyframes ldpulse { 0%, 100% { opacity: 0.35; } 50% { opacity: 1; } }
+    .install-btn {
+      display: none; margin-top: 4px; padding: 7px 22px; font-size: 14px;
+      background: #2a3a2a; color: #aaddaa; border: 1px solid #4a7a4a; border-radius: 8px; cursor: pointer;
+    }
+    .install-btn:hover { background: #345034; }
+    #ios-guide {
+      display: none; position: fixed; inset: 0; z-index: 70;
+      background: rgba(8,6,4,.9); align-items: center; justify-content: center;
+    }
+    #ios-guide.open { display: flex; }
+    #ios-guide .ig-box {
+      background: #1f1b15; border: 2px solid #6b5a3e; border-radius: 12px;
+      padding: 24px 28px; max-width: 320px; color: #ddd; font-size: 15px; line-height: 2;
+    }
+    #ios-guide .ig-box b { color: #ffd766; }
+    #ios-guide .ig-box button {
+      margin-top: 14px; width: 100%; padding: 9px 0; background: #7a1f1f;
+      color: #ffeedd; border: 1px solid #c0392b; border-radius: 8px; cursor: pointer; font-size: 15px;
+    }
     #ts-links {
       position: fixed; bottom: 86px; left: 50%; transform: translateX(-50%);
       font-size: 13px; color: #776;
@@ -261,6 +280,7 @@
     <div id="ts-name">⚔ 武士圓舞曲</div>
     <div id="ts-sub">Knight's Waltz・俯視角物理決鬥</div>
     <button id="btn-start">進入遊戲</button>
+    <button id="btn-install" class="install-btn">📲 安裝成 App</button>
     <div id="ts-links">
       <a href="about.html" target="_blank" rel="noopener">關於本遊戲</a>|<a href="terms.html" target="_blank" rel="noopener">服務條款</a>|<a href="privacy.html" target="_blank" rel="noopener">隱私權政策</a>
     </div>
@@ -295,6 +315,17 @@
     <div id="menu-bottom">
       <div id="opp-select"><button id="opp-prev">◀</button><span id="opp-label"></span><button id="opp-next">▶</button></div>
       <button id="btn-fight">⚔ 開始戰鬥</button>
+      <button id="btn-install2" class="install-btn">📲 安裝成 App</button>
+    </div>
+  </div>
+  <div id="ios-guide">
+    <div class="ig-box">
+      <b>安裝到 iPhone 主畫面:</b><br>
+      1. 點 Safari 下方的<b>分享</b>鈕 <span style="font-size:18px">⎋</span><br>
+      2. 往下捲,選<b>「加入主畫面」</b><br>
+      3. 點<b>「新增」</b>完成!<br>
+      <span style="font-size:12px;color:#998">之後從主畫面開啟就是全螢幕 App</span>
+      <button id="ig-close">知道了</button>
     </div>
   </div>
   <div id="battle-btns" class="hidden">
