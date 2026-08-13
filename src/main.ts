@@ -2,6 +2,8 @@ import * as THREE from 'three';
 import { GLTFLoader, type GLTF } from 'three/addons/loaders/GLTFLoader.js';
 import { clone as cloneSkeleton } from 'three/addons/utils/SkeletonUtils.js';
 import RAPIER from '@dimforge/rapier2d-compat';
+import type { User } from 'firebase/auth';
+import { loginGoogle, loginApple, loginAnon, logout, watchAuth, cloudLoad, cloudSave } from './account';
 
 // ============================================================
 // 可調參數 — 手感全在這裡,調完存檔瀏覽器會自動重載
@@ -79,22 +81,43 @@ const ENEMY_ROSTER: Foe[] = [
   { char: 'skelWarrior', label: '骷髏戰士', weapon: 'skelAxe', shield: 'skelLargeA', tint: 0x44ff99, hpMult: 2.5, moveMult: 1.05, swingMult: 1.3, heightMult: 1.08, reward: 300 },
 ];
 
-// ---------- 存檔:金幣 / 擁有 / 裝備中 ----------
-type Save = { gold: number; ownedW: string[]; ownedS: string[]; eqW: string; eqS: string };
+// ---------- 存檔:金幣 / 擁有 / 裝備中 / 戰績 ----------
+type Save = { gold: number; ownedW: string[]; ownedS: string[]; eqW: string; eqS: string; wins: number; losses: number };
+// 統一正規化:欄位順序固定,雲端/本地存檔比對才不會因缺欄位或順序而誤判不同
+function normalizeSave(raw: unknown): Save {
+  const def: Save = { gold: 0, ownedW: ['sword1h'], ownedS: ['badge'], eqW: 'sword1h', eqS: 'badge', wins: 0, losses: 0 };
+  if (!raw || typeof raw !== 'object') return def;
+  const s = raw as Partial<Save>;
+  return {
+    gold: Math.max(0, Number(s.gold) || 0),
+    ownedW: Array.isArray(s.ownedW) && s.ownedW.length ? s.ownedW.filter((k) => WEAPONS[k]) : def.ownedW,
+    ownedS: Array.isArray(s.ownedS) && s.ownedS.length ? s.ownedS.filter((k) => SHIELDS[k]) : def.ownedS,
+    eqW: s.eqW && WEAPONS[s.eqW] ? s.eqW : def.eqW,
+    eqS: s.eqS && SHIELDS[s.eqS] ? s.eqS : def.eqS,
+    wins: Math.max(0, Number(s.wins) || 0),
+    losses: Math.max(0, Number(s.losses) || 0),
+  };
+}
 function loadSave(): Save {
-  const def: Save = { gold: 0, ownedW: ['sword1h'], ownedS: ['badge'], eqW: 'sword1h', eqS: 'badge' };
-  try {
-    const s = JSON.parse(localStorage.getItem('kd_save') ?? '') as Save;
-    if (!WEAPONS[s.eqW]) s.eqW = def.eqW;
-    if (!SHIELDS[s.eqS]) s.eqS = def.eqS;
-    if (!Array.isArray(s.ownedW) || !s.ownedW.length) s.ownedW = def.ownedW;
-    if (!Array.isArray(s.ownedS) || !s.ownedS.length) s.ownedS = def.ownedS;
-    s.gold = Math.max(0, s.gold || 0);
-    return s;
-  } catch { return def; }
+  try { return normalizeSave(JSON.parse(localStorage.getItem('kd_save') ?? '')); }
+  catch { return normalizeSave(null); }
 }
 const SAVE = loadSave();
-function persistSave() { localStorage.setItem('kd_save', JSON.stringify(SAVE)); }
+
+// 雲端同步:登入後每次存檔變動,延遲 1.5 秒推上雲(合併連續變動)
+let currentUser: User | null = null;
+let cloudPushTimer: number | undefined;
+function scheduleCloudPush() {
+  if (!currentUser) return;
+  clearTimeout(cloudPushTimer);
+  cloudPushTimer = window.setTimeout(() => {
+    if (currentUser) cloudSave(currentUser, SAVE).catch(() => { /* 離線不擋遊戲 */ });
+  }, 1500);
+}
+function persistSave() {
+  localStorage.setItem('kd_save', JSON.stringify(SAVE));
+  scheduleCloudPush();
+}
 
 // ---------- 場地形狀(按 1-4 切換,記住選擇) ----------
 // r = 外接圓半徑。挑法:垂直方向邊距(apothem)都 ≥5.5,
@@ -854,6 +877,52 @@ function start(models: Models) {
   });
   window.addEventListener('pointerup', () => { dragX = null; });
 
+  // ---------- 帳號 UI 與雲端同步 ----------
+  const accOut = document.getElementById('acc-out')!;
+  const accIn = document.getElementById('acc-in')!;
+  const accName = document.getElementById('acc-name')!;
+  const accStats = document.getElementById('acc-stats')!;
+  const accErr = document.getElementById('acc-err')!;
+  function renderAccount() {
+    const u = currentUser;
+    accOut.style.display = u ? 'none' : 'block';
+    accIn.style.display = u ? 'block' : 'none';
+    if (u) accName.textContent = u.isAnonymous ? `訪客-${u.uid.slice(0, 4)}` : (u.displayName || u.email || u.uid.slice(0, 8));
+    accStats.textContent = `戰績:${SAVE.wins} 勝 ${SAVE.losses} 敗`;
+  }
+  function doLogin(fn: () => Promise<unknown>) {
+    accErr.textContent = '';
+    fn().catch((e: Error) => { accErr.textContent = `登入失敗:${e.message.slice(0, 60)}`; });
+  }
+  document.getElementById('btn-google')!.addEventListener('click', () => doLogin(loginGoogle));
+  document.getElementById('btn-apple')!.addEventListener('click', () => doLogin(loginApple));
+  document.getElementById('btn-anon')!.addEventListener('click', () => doLogin(loginAnon));
+  document.getElementById('btn-logout')!.addEventListener('click', () => { logout(); });
+  watchAuth(async (u) => {
+    currentUser = u;
+    renderAccount();
+    if (!u) return;
+    try {
+      const cloud = await cloudLoad(u);
+      if (cloud && cloud.data) {
+        // 雲端有存檔 → 雲端為準;正規化後比對,不同才重載(避免無限重載)
+        const cloudNorm = JSON.stringify(normalizeSave(cloud.data));
+        if (cloudNorm !== JSON.stringify(SAVE)) {
+          localStorage.setItem('kd_save', cloudNorm);
+          localStorage.setItem('kd_mode', 'menu');
+          location.reload();
+        }
+      } else {
+        // 首次登入:把本地進度上雲
+        cloudSave(u, SAVE).catch(() => {});
+      }
+    } catch (e) {
+      accErr.textContent = '雲端同步失敗(進度仍存在本機)';
+      console.warn('cloud sync', e);
+    }
+  });
+  renderAccount();
+
   // 開場畫面:點「進入遊戲」同時解鎖 AudioContext(瀏覽器要求使用者手勢後才准出聲)
   const titleEl = document.getElementById('titlescreen')!;
   if (sessionStorage.getItem('kd_title_seen')) titleEl.style.display = 'none';
@@ -1075,14 +1144,18 @@ function start(models: Models) {
         return;
       }
       if (victim.isPlayer) {
+        SAVE.losses += 1;
+        persistSave();
         msgEl.textContent = '你被擊敗了…';
       } else {
         SAVE.gold += foe.reward;
+        SAVE.wins += 1;
         persistSave();
         updateGold();
         msgEl.textContent = `你贏了!+${foe.reward} 金幣`;
         setTimeout(() => playSfx('coins', 0.9), 500);
       }
+      renderAccount();
       msgEl.style.display = 'block';
       // 讓殘骸飛一下,自動回主畫面
       clearTimeout(menuTimer);

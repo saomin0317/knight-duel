@@ -83,6 +83,21 @@
     #arena-select { color: #999; font-size: 13px; display: flex; gap: 6px; align-items: center; }
     #arena-select button { padding: 3px 12px; background: #2a2a30; color: #bbb; border: 1px solid #555; border-radius: 5px; cursor: pointer; }
     #arena-select button.cur { border-color: #ffd766; color: #ffd766; }
+    /* 帳號面板(主畫面左上) */
+    #account {
+      position: fixed; top: 88px; left: 16px; width: 210px;
+      background: rgba(20,18,14,.92); border: 1px solid #4a3f2c; border-radius: 8px;
+      padding: 12px; pointer-events: auto; color: #ddd; font-size: 13px;
+    }
+    #account h4 { margin: 0 0 8px; font-size: 13px; color: #c8b48a; }
+    #account button {
+      display: block; width: 100%; margin: 6px 0; padding: 7px 0;
+      background: #2a2a30; color: #ddd; border: 1px solid #666; border-radius: 6px; cursor: pointer; font-size: 13px;
+    }
+    #account button:hover { background: #3a3a42; }
+    #acc-name { color: #ffd766; font-weight: 700; margin-bottom: 4px; word-break: break-all; }
+    #acc-stats { color: #aaa; margin-bottom: 6px; }
+    #acc-err { color: #d66; font-size: 11px; min-height: 14px; margin-top: 4px; }
     /* 戰鬥中按鈕 */
     #battle-btns { position: fixed; bottom: 40px; right: 16px; display: flex; flex-direction: column; gap: 8px; }
     #battle-btns.hidden { display: none; }
@@ -142,6 +157,20 @@
   <div id="menu">
     <div id="menu-title">⚔ 武士圓舞曲</div>
     <div id="hero-label">◀ ▶ 或滑鼠拖曳旋轉人物<br>鐵匠鋪買的裝備會直接穿在身上</div>
+    <div id="account">
+      <h4>帳號</h4>
+      <div id="acc-out">
+        <button id="btn-google">Google 登入</button>
+        <button id="btn-apple"> Apple 登入</button>
+        <button id="btn-anon">訪客遊玩</button>
+      </div>
+      <div id="acc-in" style="display:none">
+        <div id="acc-name"></div>
+        <div id="acc-stats"></div>
+        <button id="btn-logout">登出</button>
+      </div>
+      <div id="acc-err"></div>
+    </div>
     <div id="menu-bottom">
       <div id="opp-select"><button id="opp-prev">◀</button><span id="opp-label"></span><button id="opp-next">▶</button></div>
       <div id="arena-select">場地:
