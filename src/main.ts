@@ -10,14 +10,19 @@ const CFG = {
   moveForce: 5.0,       // 前後移動力道
   linearDamping: 3.5,   // 移動阻尼
   bodyRadius: 0.45,     // 身體(圓)半徑
-  swordLength: 1.6,     // 劍長
+  swordLength: 1.6,     // 劍刃長
   swordDensity: 0.25,   // 劍的密度:越重甩起來慣性越大
-  dmgThreshold: 4.5,    // 劍身接觸點相對速度低於這個只算「碰到」,不扣血
+  bladeStart: 0.5,      // 劍刃起點(距離肩關節,中間是手臂+握把)
+  jointLimit: 1.0,      // 手臂關節可擺角度(±弧度):武器滯後到這裡就被身體帶著走
+  armStiffness: 3.0,    // 「肌肉」把武器拉回正前方的彈簧勁度
+  armDamping: 0.4,      // 肌肉彈簧的阻尼
+  weaponDamping: 0.6,   // 武器本身的阻尼(低=甩起來很野)
+  dmgThreshold: 4.5,    // 劍刃接觸點相對速度低於這個只算「碰到」,不扣血
   dmgScale: 4.5,        // 傷害 = (相對速度 - 門檻) * 這個
   hitCooldown: 0.35,    // 同一把劍對同一人連續判傷的最短間隔(秒)
   maxHp: 100,
   arenaHalf: 5.5,       // 場地半寬
-  aiSwingImpulse: 0.8,  // AI 揮劍的瞬間力道
+  aiSwingImpulse: 1.0,  // AI 揮劍的瞬間力道(武器有滯後,比剛性版稍大)
 };
 
 const app = document.getElementById('app')!;
@@ -97,10 +102,13 @@ function start() {
 
   // ---------- 武士 ----------
   class Knight {
-    rb: RAPIER.RigidBody;
+    rb: RAPIER.RigidBody;        // 身體
+    weaponRb: RAPIER.RigidBody;  // 手臂+武器(獨立剛體,肩關節連到身體)
+    joint: RAPIER.ImpulseJoint | null = null;
     hp = CFG.maxHp;
-    mesh: THREE.Group;      // 外層:跟著物理身體旋轉(yaw)
-    rig: THREE.Group;       // 內層:走路/傾身動畫 + 所有部件
+    mesh: THREE.Group;           // 身體外觀:跟著身體剛體
+    rig: THREE.Group;            // 走路/傾身動畫層
+    weaponGroup: THREE.Group;    // 手臂+武器外觀:跟著武器剛體
     legL!: THREE.Mesh;
     legR!: THREE.Mesh;
     flashMats: THREE.MeshStandardMaterial[] = [];
@@ -115,11 +123,14 @@ function start() {
     stuckTime = 0;
     // step 前的速度快照:撞擊瞬間解算器會把速度吸收掉,
     // 判傷要用「進入碰撞前」的速度才抓得到衝擊力
-    preLv = { x: 0, y: 0 };
-    preW = 0;
+    weaponPreLv = { x: 0, y: 0 };
+    weaponPreW = 0;
+    bodyPreLv = { x: 0, y: 0 };
 
     constructor(x: number, y: number, angle: number, color: number, public isPlayer: boolean) {
       this.spawn = { x, y, angle };
+
+      // ----- 身體剛體 -----
       this.rb = world.createRigidBody(
         RAPIER.RigidBodyDesc.dynamic()
           .setTranslation(x, y)
@@ -131,15 +142,33 @@ function start() {
         RAPIER.ColliderDesc.ball(CFG.bodyRadius).setDensity(1.0).setRestitution(0.2),
         this.rb
       );
+
+      // ----- 手臂+武器剛體(原點=肩關節,+X 往劍尖) -----
+      const px = x + Math.cos(angle) * CFG.bodyRadius;
+      const py = y + Math.sin(angle) * CFG.bodyRadius;
+      this.weaponRb = world.createRigidBody(
+        RAPIER.RigidBodyDesc.dynamic()
+          .setTranslation(px, py)
+          .setRotation(angle)
+          .setLinearDamping(CFG.weaponDamping)
+          .setAngularDamping(CFG.weaponDamping)
+      );
+      // 手臂段
+      world.createCollider(
+        RAPIER.ColliderDesc.cuboid(0.2, 0.05).setTranslation(0.24, 0).setDensity(0.35),
+        this.weaponRb
+      );
+      // 劍刃段
       world.createCollider(
         RAPIER.ColliderDesc.cuboid(CFG.swordLength / 2, 0.04)
-          .setTranslation(CFG.bodyRadius + CFG.swordLength / 2, 0)
+          .setTranslation(CFG.bladeStart + CFG.swordLength / 2, 0)
           .setDensity(CFG.swordDensity)
           .setRestitution(0.3),
-        this.rb
+        this.weaponRb
       );
+      this.makeJoint();
 
-      // ----- 外觀:部件組裝(預切部件 = 之後斷肢/碎裂的基礎) -----
+      // ----- 身體外觀 -----
       const clothMat = new THREE.MeshStandardMaterial({ color, roughness: 0.85 });
       const steelMat = new THREE.MeshStandardMaterial({ color: 0x9aa0ad, metalness: 0.6, roughness: 0.5 });
       this.flashMats = [clothMat, steelMat];
@@ -169,18 +198,41 @@ function start() {
       add(new THREE.Mesh(new THREE.SphereGeometry(0.17, 12, 10), steelMat), 0, 1.05, 0, true);
       add(new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.05, 0.2), darkMat), 0.14, 1.05, 0);
       add(new THREE.Mesh(new THREE.BoxGeometry(0.09, 0.22, 0.06), clothMat), -0.04, 1.22, 0, true);
-      // 持劍手臂 + 手
-      const arm = add(new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.1, 0.1), clothMat), 0.26, 0.74, 0.2);
-      arm.rotation.y = 0.45;
-      add(new THREE.Mesh(new THREE.SphereGeometry(0.08, 8, 6), leatherMat), 0.42, 0.72, 0.06);
-      // 劍:握把 + 護手 + 劍身(劍身範圍對齊物理碰撞體 0.45~2.05,所見即判定)
-      add(new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.06, 0.06), leatherMat), 0.34, 0.72, 0);
-      add(new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.05, 0.3), darkMat), 0.45, 0.72, 0);
-      const bladeLen = CFG.swordLength - 0.05;
-      add(new THREE.Mesh(new THREE.BoxGeometry(bladeLen, 0.045, 0.12), bladeMat),
-        CFG.bodyRadius + 0.05 + bladeLen / 2, 0.72, 0, true);
-
       scene.add(this.mesh);
+
+      // ----- 手臂+武器外觀(獨立 group,跟著武器剛體) -----
+      this.weaponGroup = new THREE.Group();
+      const wadd = (m: THREE.Mesh, lx: number, ly: number, lz: number) => {
+        m.position.set(lx, ly, lz);
+        m.castShadow = true;
+        this.weaponGroup.add(m);
+        return m;
+      };
+      wadd(new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.1, 0.1), clothMat), 0.15, 0.74, 0);   // 上臂
+      wadd(new THREE.Mesh(new THREE.SphereGeometry(0.08, 8, 6), leatherMat), 0.32, 0.73, 0);  // 手
+      wadd(new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.06, 0.06), leatherMat), 0.4, 0.72, 0); // 握把
+      wadd(new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.05, 0.3), darkMat), 0.5, 0.72, 0);    // 護手
+      wadd(new THREE.Mesh(new THREE.BoxGeometry(CFG.swordLength, 0.045, 0.12), bladeMat),
+        CFG.bladeStart + CFG.swordLength / 2, 0.72, 0);                                        // 劍刃(對齊物理)
+      scene.add(this.weaponGroup);
+    }
+
+    // 肩關節:±jointLimit 角度限制 + 馬達彈簧把武器拉回正前方(=肌肉)
+    makeJoint() {
+      if (this.joint) return;
+      const jd = RAPIER.JointData.revolute({ x: CFG.bodyRadius, y: 0 }, { x: 0, y: 0 });
+      this.joint = world.createImpulseJoint(jd, this.rb, this.weaponRb, true);
+      // 關節相連的兩個剛體之間不互撞(手臂貼著身體)
+      this.joint.setContactsEnabled(false);
+      const rev = this.joint as RAPIER.RevoluteImpulseJoint;
+      // 注意:JointData 上的 limitsEnabled/limits 欄位在這版不會生效,要用 setLimits()
+      rev.setLimits(-CFG.jointLimit, CFG.jointLimit);
+      rev.configureMotorPosition(0, CFG.armStiffness, CFG.armDamping);
+    }
+    dropWeapon() {
+      if (!this.joint) return;
+      world.removeImpulseJoint(this.joint, true);
+      this.joint = null;
     }
 
     get pos() { return this.rb.translation(); }
@@ -188,8 +240,10 @@ function start() {
 
     captureVel() {
       const lv = this.rb.linvel();
-      this.preLv = { x: lv.x, y: lv.y };
-      this.preW = this.rb.angvel();
+      this.bodyPreLv = { x: lv.x, y: lv.y };
+      const wv = this.weaponRb.linvel();
+      this.weaponPreLv = { x: wv.x, y: wv.y };
+      this.weaponPreW = this.weaponRb.angvel();
     }
 
     forward(force: number, dt: number) {
@@ -206,6 +260,14 @@ function start() {
       this.rb.setRotation(this.spawn.angle, true);
       this.rb.setLinvel({ x: 0, y: 0 }, true);
       this.rb.setAngvel(0, true);
+      // 武器歸位到手上 + 重接關節
+      const px = this.spawn.x + Math.cos(this.spawn.angle) * CFG.bodyRadius;
+      const py = this.spawn.y + Math.sin(this.spawn.angle) * CFG.bodyRadius;
+      this.weaponRb.setTranslation({ x: px, y: py }, true);
+      this.weaponRb.setRotation(this.spawn.angle, true);
+      this.weaponRb.setLinvel({ x: 0, y: 0 }, true);
+      this.weaponRb.setAngvel(0, true);
+      this.makeJoint();
       this.swingTimer = 1.0;
       this.lastSwingAt = -9;
       this.stuckTime = 0;
@@ -217,18 +279,22 @@ function start() {
       this.mesh.position.set(p.x, 0, -p.y);
       this.mesh.rotation.y = this.angle;
 
+      const w = this.weaponRb.translation();
+      this.weaponGroup.position.set(w.x, 0, -w.y);
+      this.weaponGroup.rotation.y = this.weaponRb.rotation();
+
       // 走路 + 傾身(純視覺,不影響物理)
       const lv = this.rb.linvel();
-      const w = this.rb.angvel();
+      const bw = this.rb.angvel();
       const speed = Math.hypot(lv.x, lv.y);
-      this.walkPhase += (speed * 3 + Math.abs(w) * 1.2) * dt;
-      const amp = Math.min(0.14, speed * 0.06 + Math.abs(w) * 0.01);
+      this.walkPhase += (speed * 3 + Math.abs(bw) * 1.2) * dt;
+      const amp = Math.min(0.14, speed * 0.06 + Math.abs(bw) * 0.01);
       this.legL.position.x = Math.sin(this.walkPhase) * amp;
       this.legR.position.x = -Math.sin(this.walkPhase) * amp;
       const a = this.angle;
       const fwdSpeed = lv.x * Math.cos(a) + lv.y * Math.sin(a);
       this.rig.rotation.x = THREE.MathUtils.clamp(fwdSpeed * 0.03, -0.12, 0.12);
-      this.rig.rotation.z = THREE.MathUtils.clamp(-w * 0.03, -0.15, 0.15);
+      this.rig.rotation.z = THREE.MathUtils.clamp(-bw * 0.03, -0.15, 0.15);
 
       const flash = now < this.flashUntil ? 0x881111 : 0x000000;
       for (const m of this.flashMats) m.emissive.setHex(flash);
@@ -289,7 +355,7 @@ function start() {
     }
   }
 
-  // ---------- 死亡碎裂:部件變成物理殘骸四散 ----------
+  // ---------- 死亡碎裂:部件變成物理殘骸四散,武器連手臂整隻飛走 ----------
   type Debris = {
     mesh: THREE.Mesh; rb: RAPIER.RigidBody;
     h: number; vy: number; spinAxis: THREE.Vector3; spin: number;
@@ -300,6 +366,12 @@ function start() {
     const p = k.pos, a = k.angle;
     const mag = Math.hypot(impact.x, impact.y) || 1;
     const ix = impact.x / mag, iy = impact.y / mag;
+
+    // 手臂+武器脫離身體飛出去(關節斷開,剛體本來就存在)
+    k.dropWeapon();
+    k.weaponRb.applyImpulse({ x: ix * 0.12 + (Math.random() - 0.5) * 0.1, y: iy * 0.12 + (Math.random() - 0.5) * 0.1 }, true);
+    k.weaponRb.applyTorqueImpulse((Math.random() - 0.5) * 1.2, true);
+
     for (const part of k.debrisParts) {
       // 部件局部座標 → 2D 世界座標(局部 +X=面向, +Z=右手邊)
       const wx = p.x + part.l.x * Math.cos(a) + part.l.z * Math.sin(a);
@@ -351,19 +423,21 @@ function start() {
   }
 
   // ---------- 傷害判定 ----------
-  // 不用物理引擎的碰撞事件:兩人貼身時劍一直「接觸中」,揮劍不會產生新事件。
-  // 改成每一幀直接算「劍身線段 vs 身體圓」,有交疊再看接觸點的相對速度夠不夠快。
+  // 每一幀直接算「劍刃線段 vs 身體圓」,有交疊再看接觸點的相對速度夠不夠快。
+  // 劍刃現在長在武器剛體上,位置/速度都從武器剛體取。
   let gameOver = false;
   let clock = 0;
   const lastHitAt = new Map<string, number>(); // "attacker->victim" → 時間
 
   function swordHitCheck(attacker: Knight, victim: Knight) {
     if (gameOver) return;
-    const a = attacker.angle, p = attacker.pos, v = victim.pos;
-    const dirx = Math.cos(a), diry = Math.sin(a);
-    const bx = p.x + dirx * CFG.bodyRadius, by = p.y + diry * CFG.bodyRadius; // 劍根
+    const wp = attacker.weaponRb.translation();
+    const wa = attacker.weaponRb.rotation();
+    const v = victim.pos;
+    const dirx = Math.cos(wa), diry = Math.sin(wa);
+    const bx = wp.x + dirx * CFG.bladeStart, by = wp.y + diry * CFG.bladeStart; // 刃根
 
-    // 受害者中心投影到劍身線段,找最近點
+    // 受害者中心投影到劍刃線段,找最近點
     let t = (v.x - bx) * dirx + (v.y - by) * diry;
     t = Math.max(0, Math.min(CFG.swordLength, t));
     const cx = bx + dirx * t, cy = by + diry * t;
@@ -372,11 +446,10 @@ function start() {
     const key = attacker.isPlayer ? 'p->e' : 'e->p';
     if (clock - (lastHitAt.get(key) ?? -9) < CFG.hitCooldown) return;
 
-    // 接觸點速度 = 平移速度 + 旋轉帶動(離身體越遠甩越快)
-    // 用 step 前的快照速度:撞擊當下解算器已把速度吃掉,事後讀是 0
-    const lv = attacker.preLv, w = attacker.preW;
-    const rx = cx - p.x, ry = cy - p.y;
-    const vv = victim.preLv;
+    // 接觸點速度 = 武器平移速度 + 旋轉帶動(用 step 前快照)
+    const lv = attacker.weaponPreLv, w = attacker.weaponPreW;
+    const rx = cx - wp.x, ry = cy - wp.y;
+    const vv = victim.bodyPreLv;
     const impact = { x: lv.x - w * ry - vv.x, y: lv.y + w * rx - vv.y };
     const relSpeed = Math.hypot(impact.x, impact.y);
     const dmg = Math.max(0, relSpeed - CFG.dmgThreshold) * CFG.dmgScale;
