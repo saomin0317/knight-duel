@@ -28,6 +28,29 @@
       position: fixed; bottom: 14px; left: 0; right: 0; text-align: center;
       color: #888; font-size: 13px; pointer-events: none;
     }
+    #gold {
+      position: fixed; top: 14px; left: 50%; transform: translateX(-50%);
+      color: #ffd766; font-size: 18px; font-weight: 700; text-shadow: 0 1px 4px #000;
+    }
+    #shop {
+      position: fixed; top: 60px; right: 16px; width: 340px; max-height: calc(100vh - 120px);
+      overflow-y: auto; background: rgba(20, 18, 14, 0.96); border: 2px solid #6b5a3e;
+      border-radius: 8px; padding: 14px 16px; color: #ddd; display: none;
+    }
+    #shop.open { display: block; }
+    #shop h2 { margin: 0 0 4px; font-size: 18px; color: #ffd766; }
+    #shop h3 { margin: 12px 0 6px; font-size: 14px; color: #c8b48a; border-bottom: 1px solid #4a3f2c; padding-bottom: 3px; }
+    .srow { display: flex; align-items: center; gap: 8px; padding: 4px 0; font-size: 13px; }
+    .sname { width: 84px; }
+    .sstat { flex: 1; color: #999; font-size: 11px; }
+    .srow button {
+      width: 76px; padding: 3px 0; border-radius: 4px; border: 1px solid #866f47;
+      background: #3a3020; color: #ffd766; cursor: pointer; font-size: 12px;
+    }
+    .srow button:hover { background: #4a3d28; }
+    .srow button.eq { background: #2d4a2d; border-color: #5a8a5a; color: #aaffaa; cursor: default; }
+    .srow button.cant { opacity: 0.45; cursor: default; }
+    .shop-note { margin-top: 10px; font-size: 11px; color: #887; }
   </style>
 </head>
 <body>
@@ -37,7 +60,13 @@
   <div id="label-player" class="hplabel">你(藍)</div>
   <div id="label-enemy"  class="hplabel">敵人(紅)</div>
   <div id="msg"></div>
-  <div id="hint">← → 旋轉甩劍|↑ ↓ 前後移動|R 重開|N 換對手|場地:1 圓 2 方 3 六角 4 八角</div>
+  <div id="gold">💰 0</div>
+  <div id="shop">
+    <h2>鐵匠鋪</h2>
+    <div id="shop-items"></div>
+    <div class="shop-note">按 B 開關|買到手後點「裝備」立刻換裝(重開本場)</div>
+  </div>
+  <div id="hint">← → 旋轉甩劍|↑ ↓ 前後移動|R 重開|N 換對手|B 鐵匠鋪|場地:1 圓 2 方 3 六角 4 八角</div>
   <script type="module" src="/src/main.ts"></script>
 </body>
 </html>

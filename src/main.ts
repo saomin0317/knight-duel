@@ -31,30 +31,62 @@ const CFG = {
   charHeight: 1.35 * S,      // 角色模型身高
 };
 
-// ---------- 裝備定義:模型 + 物理參數(商店系統的地基) ----------
-type WeaponDef = { model: string; length: number; density: number; dmgMult: number };
-type ShieldDef = { model: string; halfWidth: number; density: number };
+// ---------- 裝備定義:模型 + 物理參數 + 價格(每件都不同) ----------
+type WeaponDef = { model: string; label: string; length: number; density: number; dmgMult: number; price: number };
+type ShieldDef = { model: string; label: string; halfWidth: number; density: number; price: number };
 const WEAPONS: Record<string, WeaponDef> = {
-  sword2h: { model: 'sword_2handed', length: 1.6 * S, density: 0.25 / (S * S), dmgMult: 1.0 },
-  axe2h: { model: 'axe_2handed', length: 1.35 * S, density: 0.5 / (S * S), dmgMult: 1.7 },
-  sword1h: { model: 'sword_1handed', length: 1.15 * S, density: 0.18 / (S * S), dmgMult: 0.8 },  // 短劍:快但輕
-  axe1h: { model: 'axe_1handed', length: 1.1 * S, density: 0.35 / (S * S), dmgMult: 1.3 },
-  staff: { model: 'staff', length: 1.7 * S, density: 0.2 / (S * S), dmgMult: 0.85 },             // 法杖:超長桿
+  sword1h: { model: 'sword_1handed', label: '短劍', length: 1.15 * S, density: 0.18 / (S * S), dmgMult: 0.8, price: 0 },        // 起始裝備
+  axe1h: { model: 'axe_1handed', label: '單手斧', length: 1.1 * S, density: 0.35 / (S * S), dmgMult: 1.3, price: 120 },
+  staff: { model: 'staff', label: '長木杖', length: 1.7 * S, density: 0.2 / (S * S), dmgMult: 0.85, price: 150 },
+  skelBlade: { model: 'Skeleton_Blade', label: '骷髏彎刀', length: 1.3 * S, density: 0.28 / (S * S), dmgMult: 1.1, price: 200 },
+  skelStaff: { model: 'Skeleton_Staff', label: '骨杖', length: 1.8 * S, density: 0.24 / (S * S), dmgMult: 0.95, price: 240 },
+  sword2h: { model: 'sword_2handed', label: '雙手大劍', length: 1.6 * S, density: 0.25 / (S * S), dmgMult: 1.0, price: 260 },
+  skelAxe: { model: 'Skeleton_Axe', label: '骷髏斧', length: 1.25 * S, density: 0.42 / (S * S), dmgMult: 1.5, price: 300 },
+  axe2h: { model: 'axe_2handed', label: '雙手大斧', length: 1.35 * S, density: 0.5 / (S * S), dmgMult: 1.7, price: 380 },
 };
 const SHIELDS: Record<string, ShieldDef> = {
-  round: { model: 'shield_round', halfWidth: 0.46 * S, density: 0.5 / (S * S) },
-  spikes: { model: 'shield_spikes', halfWidth: 0.43 * S, density: 0.65 / (S * S) },
-  square: { model: 'shield_square', halfWidth: 0.42 * S, density: 0.55 / (S * S) },
-  badge: { model: 'shield_badge', halfWidth: 0.34 * S, density: 0.4 / (S * S) },
+  badge: { model: 'shield_badge', label: '徽章小盾', halfWidth: 0.34 * S, density: 0.4 / (S * S), price: 0 },                    // 起始裝備
+  skelSmallA: { model: 'Skeleton_Shield_Small_A', label: '骨片小盾', halfWidth: 0.36 * S, density: 0.45 / (S * S), price: 80 },
+  skelSmallB: { model: 'Skeleton_Shield_Small_B', label: '裂骨小盾', halfWidth: 0.38 * S, density: 0.42 / (S * S), price: 90 },
+  round: { model: 'shield_round', label: '圓盾', halfWidth: 0.46 * S, density: 0.5 / (S * S), price: 120 },
+  square: { model: 'shield_square', label: '方盾', halfWidth: 0.42 * S, density: 0.55 / (S * S), price: 160 },
+  skelLargeA: { model: 'Skeleton_Shield_Large_A', label: '骨牆大盾', halfWidth: 0.48 * S, density: 0.6 / (S * S), price: 200 },
+  skelLargeB: { model: 'Skeleton_Shield_Large_B', label: '骸骨大盾', halfWidth: 0.5 * S, density: 0.58 / (S * S), price: 220 },
+  spikes: { model: 'shield_spikes', label: '尖刺盾', halfWidth: 0.43 * S, density: 0.65 / (S * S), price: 240 },
 };
 
-// ---------- 敵人配置輪換(按 N 換下一個對手) ----------
-const ENEMY_ROSTER = [
-  { char: 'barbarian', label: '野蠻人', weapon: 'axe2h', shield: 'spikes', tint: 0xff5544 },
-  { char: 'rogue', label: '盜賊', weapon: 'sword1h', shield: 'badge', tint: 0xdd4466 },
-  { char: 'rogueHooded', label: '刺客', weapon: 'axe1h', shield: 'square', tint: 0x995544 },
-  { char: 'mage', label: '法師', weapon: 'staff', shield: 'round', tint: 0xcc55cc },
-] as const;
+// ---------- 敵人階梯(按 N 換下一個):一個比一個強,賞金遞增 ----------
+type Foe = {
+  char: string; label: string; weapon: string; shield: string; tint: number;
+  hpMult: number; moveMult: number; swingMult: number; heightMult: number; reward: number;
+};
+const ENEMY_ROSTER: Foe[] = [
+  { char: 'skelMinion', label: '骷髏小兵', weapon: 'skelBlade', shield: 'skelSmallA', tint: 0x88ff88, hpMult: 0.6, moveMult: 0.85, swingMult: 0.8, heightMult: 0.85, reward: 40 },
+  { char: 'rogue', label: '盜賊', weapon: 'sword1h', shield: 'badge', tint: 0xdd4466, hpMult: 0.8, moveMult: 1.1, swingMult: 0.9, heightMult: 1.0, reward: 60 },
+  { char: 'skelRogue', label: '骷髏遊蕩者', weapon: 'skelBlade', shield: 'skelSmallB', tint: 0x66dd66, hpMult: 0.9, moveMult: 1.15, swingMult: 1.0, heightMult: 0.95, reward: 80 },
+  { char: 'rogueHooded', label: '刺客', weapon: 'axe1h', shield: 'square', tint: 0x995544, hpMult: 1.0, moveMult: 1.2, swingMult: 1.05, heightMult: 1.0, reward: 100 },
+  { char: 'skelMage', label: '骷髏法師', weapon: 'skelStaff', shield: 'skelSmallB', tint: 0x55ccbb, hpMult: 1.0, moveMult: 1.0, swingMult: 1.1, heightMult: 1.0, reward: 120 },
+  { char: 'barbarian', label: '野蠻人', weapon: 'axe2h', shield: 'spikes', tint: 0xff5544, hpMult: 1.2, moveMult: 1.0, swingMult: 1.15, heightMult: 1.05, reward: 150 },
+  { char: 'mage', label: '法師', weapon: 'staff', shield: 'round', tint: 0xcc55cc, hpMult: 1.0, moveMult: 1.05, swingMult: 1.25, heightMult: 1.0, reward: 170 },
+  { char: 'skelWarrior', label: '骷髏戰士', weapon: 'skelAxe', shield: 'skelLargeA', tint: 0x44ff99, hpMult: 1.4, moveMult: 1.05, swingMult: 1.3, heightMult: 1.08, reward: 220 },
+];
+
+// ---------- 存檔:金幣 / 擁有 / 裝備中 ----------
+type Save = { gold: number; ownedW: string[]; ownedS: string[]; eqW: string; eqS: string };
+function loadSave(): Save {
+  const def: Save = { gold: 0, ownedW: ['sword1h'], ownedS: ['badge'], eqW: 'sword1h', eqS: 'badge' };
+  try {
+    const s = JSON.parse(localStorage.getItem('kd_save') ?? '') as Save;
+    if (!WEAPONS[s.eqW]) s.eqW = def.eqW;
+    if (!SHIELDS[s.eqS]) s.eqS = def.eqS;
+    if (!Array.isArray(s.ownedW) || !s.ownedW.length) s.ownedW = def.ownedW;
+    if (!Array.isArray(s.ownedS) || !s.ownedS.length) s.ownedS = def.ownedS;
+    s.gold = Math.max(0, s.gold || 0);
+    return s;
+  } catch { return def; }
+}
+const SAVE = loadSave();
+function persistSave() { localStorage.setItem('kd_save', JSON.stringify(SAVE)); }
 
 // ---------- 場地形狀(按 1-4 切換,記住選擇) ----------
 // r = 外接圓半徑。挑法:垂直方向邊距(apothem)都 ≥5.5,
@@ -177,17 +209,25 @@ type Models = {
   chars: Record<string, GLTF>;
 };
 
+const CHAR_FILES: Record<string, string> = {
+  knight: 'Knight.glb', barbarian: 'Barbarian.glb',
+  mage: 'Mage.glb', rogue: 'Rogue.glb', rogueHooded: 'Rogue_Hooded.glb',
+  skelMinion: 'Skeleton_Minion.glb', skelRogue: 'Skeleton_Rogue.glb',
+  skelMage: 'Skeleton_Mage.glb', skelWarrior: 'Skeleton_Warrior.glb',
+};
+
 async function boot() {
   await RAPIER.init();
   const loader = new GLTFLoader();
-  const itemNames = ['sword_2handed', 'axe_2handed', 'sword_1handed', 'axe_1handed', 'staff', 'shield_round', 'shield_spikes', 'shield_square', 'shield_badge'];
-  const charFiles: Record<string, string> = {
-    knight: 'Knight.glb', barbarian: 'Barbarian.glb',
-    mage: 'Mage.glb', rogue: 'Rogue.glb', rogueHooded: 'Rogue_Hooded.glb',
-  };
-  const charKeys = Object.keys(charFiles);
+  // 武器/盾模型都小,全載;角色 GLB 一隻 ~4MB,只載本場要用的兩隻
+  const itemNames = [...new Set([
+    ...Object.values(WEAPONS).map((w) => w.model),
+    ...Object.values(SHIELDS).map((s) => s.model),
+  ])];
+  const foeIdx = (parseInt(localStorage.getItem('enemyIdx') ?? '0', 10) || 0) % ENEMY_ROSTER.length;
+  const charKeys = [...new Set(['knight', ENEMY_ROSTER[foeIdx].char])];
   const loaded = await Promise.all([
-    ...charKeys.map((k) => loader.loadAsync(`/models/${charFiles[k]}`)),
+    ...charKeys.map((k) => loader.loadAsync(`/models/${CHAR_FILES[k]}`)),
     ...itemNames.map((n) => loader.loadAsync(`/models/${n}.gltf`).then((g) => {
       g.scene.traverse((o) => { o.castShadow = true; });
       return g.scene;
@@ -311,13 +351,21 @@ function start(models: Models) {
     weaponPreLv = { x: 0, y: 0 };
     weaponPreW = 0;
     bodyPreLv = { x: 0, y: 0 };
+    maxHp: number;
+    moveMult: number;
+    swingMult: number;
 
     constructor(x: number, y: number, angle: number, capeTint: number,
       public index: number, public isPlayer: boolean,
-      char: GLTF, weaponKey: string, shieldKey: string) {
+      char: GLTF, weaponKey: string, shieldKey: string,
+      stats?: { hpMult?: number; moveMult?: number; swingMult?: number; heightMult?: number }) {
       this.spawn = { x, y, angle };
       this.weapon = WEAPONS[weaponKey];
       this.shield = SHIELDS[shieldKey];
+      this.maxHp = CFG.maxHp * (stats?.hpMult ?? 1);
+      this.hp = this.maxHp;
+      this.moveMult = stats?.moveMult ?? 1;
+      this.swingMult = stats?.swingMult ?? 1;
       const groups = partGroups(index);
 
       this.rb = world.createRigidBody(
@@ -368,7 +416,7 @@ function start(models: Models) {
       this.mesh.add(this.rig);
       this.model = cloneSkeleton(char.scene);
       const bbox = new THREE.Box3().setFromObject(this.model);
-      const charScale = CFG.charHeight / (bbox.max.y - bbox.min.y);
+      const charScale = (CFG.charHeight * (stats?.heightMult ?? 1)) / (bbox.max.y - bbox.min.y);
       this.model.scale.setScalar(charScale);
       const modelYaw = Math.PI / 2;
       this.model.rotation.y = modelYaw;
@@ -381,14 +429,14 @@ function start(models: Models) {
         }
         m.castShadow = true;
         const mat = (m.material as THREE.MeshStandardMaterial).clone();
-        if (/Cape$/.test(m.name)) mat.color.setHex(capeTint);
+        if (/(Cape|Cloak)$/.test(m.name)) mat.color.setHex(capeTint);
         m.material = mat;
         this.flashMats.push(mat);
       });
       this.rig.add(this.model);
       scene.add(this.mesh);
 
-      for (const suffix of [/Body$/, /Head(_Hooded)?$/, /(Helmet|Hat)$/, /LegLeft$/, /LegRight$/]) {
+      for (const suffix of [/Body$/, /Head(_Hooded)?$/, /(Helmet|Hat)$/, /Jaw$/, /LegLeft$/, /LegRight$/]) {
         const part = staticPart(char.scene, suffix);
         if (!part) continue;
         part.geometry.computeBoundingBox();
@@ -490,7 +538,7 @@ function start(models: Models) {
     }
 
     reset() {
-      this.hp = CFG.maxHp;
+      this.hp = this.maxHp;
       this.rb.setTranslation({ x: this.spawn.x, y: this.spawn.y }, true);
       this.rb.setRotation(this.spawn.angle, true);
       this.rb.setLinvel({ x: 0, y: 0 }, true);
@@ -547,9 +595,67 @@ function start(models: Models) {
   // 出生點:離牆 > 武器觸及(~3.05) > 離對手身體,出生原地空揮才不卡牆也砍不到人
   const enemyIdx = (parseInt(localStorage.getItem('enemyIdx') ?? '0', 10) || 0) % ENEMY_ROSTER.length;
   const foe = ENEMY_ROSTER[enemyIdx];
-  const player = new Knight(-2.6, 0, 0, 0x5588ff, 0, true, models.chars.knight, 'sword2h', 'round');
-  const enemy = new Knight(2.6, 0.8, Math.PI + 0.3, foe.tint, 1, false, models.chars[foe.char], foe.weapon, foe.shield);
-  document.getElementById('label-enemy')!.textContent = `敵人(${foe.label})`;
+  const player = new Knight(-2.6, 0, 0, 0x5588ff, 0, true, models.chars.knight, SAVE.eqW, SAVE.eqS);
+  const enemy = new Knight(2.6, 0.8, Math.PI + 0.3, foe.tint, 1, false, models.chars[foe.char], foe.weapon, foe.shield, foe);
+  document.getElementById('label-enemy')!.textContent = `敵人(${foe.label}·賞金${foe.reward})`;
+
+  // ---------- 金幣 HUD + 鐵匠鋪 ----------
+  const goldEl = document.getElementById('gold')!;
+  const shopEl = document.getElementById('shop')!;
+  const shopItemsEl = document.getElementById('shop-items')!;
+  let shopOpen = false;
+  function updateGold() { goldEl.textContent = `💰 ${SAVE.gold}`; }
+  function weightLabel(rawDensity: number): string {
+    const d = rawDensity * S * S;
+    return d >= 0.4 ? '重' : d >= 0.24 ? '中' : '輕';
+  }
+  function renderShop() {
+    let html = '<h3>武器</h3>';
+    for (const [k, w] of Object.entries(WEAPONS)) {
+      const owned = SAVE.ownedW.includes(k);
+      const eq = SAVE.eqW === k;
+      const cant = !owned && SAVE.gold < w.price;
+      html += `<div class="srow"><span class="sname">${w.label}</span>
+        <span class="sstat">長 ${w.length.toFixed(1)}|${weightLabel(w.density)}|威力 x${w.dmgMult}</span>
+        <button data-t="w" data-k="${k}" class="${eq ? 'eq' : cant ? 'cant' : ''}">${eq ? '裝備中' : owned ? '裝備' : `${w.price} 金`}</button></div>`;
+    }
+    html += '<h3>盾牌</h3>';
+    for (const [k, s] of Object.entries(SHIELDS)) {
+      const owned = SAVE.ownedS.includes(k);
+      const eq = SAVE.eqS === k;
+      const cant = !owned && SAVE.gold < s.price;
+      html += `<div class="srow"><span class="sname">${s.label}</span>
+        <span class="sstat">寬 ${(s.halfWidth * 2).toFixed(1)}|${weightLabel(s.density)}</span>
+        <button data-t="s" data-k="${k}" class="${eq ? 'eq' : cant ? 'cant' : ''}">${eq ? '裝備中' : owned ? '裝備' : `${s.price} 金`}</button></div>`;
+    }
+    shopItemsEl.innerHTML = html;
+    shopItemsEl.querySelectorAll('button').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const t = btn.dataset.t!, k = btn.dataset.k!;
+        const isW = t === 'w';
+        const def = isW ? WEAPONS[k] : SHIELDS[k];
+        const owned = isW ? SAVE.ownedW : SAVE.ownedS;
+        if (!owned.includes(k)) {
+          if (SAVE.gold < def.price) return;
+          SAVE.gold -= def.price;
+          owned.push(k);
+          persistSave();
+          updateGold();
+          renderShop();
+        } else if ((isW ? SAVE.eqW : SAVE.eqS) !== k) {
+          if (isW) SAVE.eqW = k; else SAVE.eqS = k;
+          persistSave();
+          location.reload(); // 裝備綁在建構期(碰撞體+模型),重載最乾淨
+        }
+      });
+    });
+  }
+  function toggleShop(open?: boolean) {
+    shopOpen = open ?? !shopOpen;
+    shopEl.classList.toggle('open', shopOpen);
+    if (shopOpen) renderShop();
+  }
+  updateGold();
   (window as unknown as Record<string, unknown>).__game = { player, enemy, CFG, WEAPONS, SHIELDS };
 
   // ---------- 噴血粒子 ----------
@@ -671,8 +777,8 @@ function start(models: Models) {
   const lastHitAt = new Map<string, number>();
 
   function updateHpBars() {
-    hpFillPlayer.style.width = `${(player.hp / CFG.maxHp) * 100}%`;
-    hpFillEnemy.style.width = `${(enemy.hp / CFG.maxHp) * 100}%`;
+    hpFillPlayer.style.width = `${(player.hp / player.maxHp) * 100}%`;
+    hpFillEnemy.style.width = `${(enemy.hp / enemy.maxHp) * 100}%`;
   }
 
   function swordHitCheck(attacker: Knight, victim: Knight) {
@@ -708,7 +814,14 @@ function start(models: Models) {
     if (victim.hp <= 0) {
       gameOver = true;
       shatter(victim, impact);
-      msgEl.textContent = victim.isPlayer ? '你被擊敗了 — 按 R 再來' : '你贏了!— 按 R 再來';
+      if (victim.isPlayer) {
+        msgEl.textContent = '你被擊敗了 — 按 R 再來';
+      } else {
+        SAVE.gold += foe.reward;
+        persistSave();
+        updateGold();
+        msgEl.textContent = `你贏了!+${foe.reward} 金幣 — R 再打|N 下一個對手|B 鐵匠鋪`;
+      }
       msgEl.style.display = 'block';
     }
   }
@@ -720,6 +833,7 @@ function start(models: Models) {
     const k = e.key.toLowerCase();
     keys.add(k);
     if (k === 'r') restart();
+    if (k === 'b') toggleShop();
     if (k === 'n') {
       // 換下一個對手:重載頁面重建(角色/武器/碎裂部件全綁在建構期)
       localStorage.setItem('enemyIdx', String((enemyIdx + 1) % ENEMY_ROSTER.length));
@@ -753,14 +867,14 @@ function start(models: Models) {
     enemy.swingTimer -= dt;
     if (enemy.swingTimer <= 0 && dist < 2.8 * S) {
       enemy.swingDir *= -1;
-      enemy.rb.applyTorqueImpulse(enemy.swingDir * CFG.aiSwingImpulse, true);
-      enemy.swingTimer = 1.1 + Math.random() * 0.8;
+      enemy.rb.applyTorqueImpulse(enemy.swingDir * CFG.aiSwingImpulse * enemy.swingMult, true);
+      enemy.swingTimer = (1.1 + Math.random() * 0.8) / enemy.swingMult;
       enemy.lastSwingAt = clock;
     } else if (clock - enemy.lastSwingAt > 0.5) {
       const w = enemy.rb.angvel();
       enemy.turn(diff * 6 - w * 1.5, dt);
     }
-    if (dist > 2.0 * S && Math.abs(diff) < 0.7) enemy.forward(CFG.moveForce, dt);
+    if (dist > 2.0 * S && Math.abs(diff) < 0.7) enemy.forward(CFG.moveForce * enemy.moveMult, dt);
     else if (dist < 1.2 * S) enemy.forward(-CFG.moveForce * 0.6, dt);
 
     const lv = enemy.rb.linvel();
@@ -782,7 +896,7 @@ function start(models: Models) {
     last = now;
     clock += dt;
 
-    if (!gameOver) {
+    if (!gameOver && !shopOpen) {
       if (keys.has('arrowleft') || keys.has('a')) player.turn(CFG.turnTorque, dt);
       if (keys.has('arrowright') || keys.has('d')) player.turn(-CFG.turnTorque, dt);
       if (keys.has('arrowup') || keys.has('w')) player.forward(CFG.moveForce, dt);
