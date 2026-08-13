@@ -380,9 +380,10 @@ boot();
 
 function start(models: Models) {
   // ---------- Three.js 場景 ----------
+  const isTouch = matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window;
   const renderer = new THREE.WebGLRenderer({ antialias: true });
   renderer.setSize(window.innerWidth, window.innerHeight);
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, isTouch ? 1.5 : 2)); // 手機壓像素比保 60fps
   renderer.shadowMap.enabled = true;
   app.appendChild(renderer.domElement);
 
@@ -1364,6 +1365,25 @@ function start(models: Models) {
     if (k === 'escape' && mode === 'battle') openMenu();
   });
   window.addEventListener('keyup', (e) => keys.delete(e.key.toLowerCase()));
+
+  // 觸控按鈕:按住=按鍵按住,直接餵進 keys(多點觸控,邊轉邊走)
+  if (isTouch) {
+    document.getElementById('touch-controls')!.style.display = 'block';
+    const bindTouch = (id: string, key: string) => {
+      const el = document.getElementById(id)!;
+      const down = (e: PointerEvent) => { e.preventDefault(); keys.add(key); el.classList.add('on'); };
+      const up = () => { keys.delete(key); el.classList.remove('on'); };
+      el.addEventListener('pointerdown', down);
+      el.addEventListener('pointerup', up);
+      el.addEventListener('pointercancel', up);
+      el.addEventListener('pointerleave', up);
+      el.addEventListener('contextmenu', (e) => e.preventDefault());
+    };
+    bindTouch('tc-left', 'arrowleft');
+    bindTouch('tc-right', 'arrowright');
+    bindTouch('tc-up', 'arrowup');
+    bindTouch('tc-down', 'arrowdown');
+  }
 
   function restart() {
     clearBattlefield();
