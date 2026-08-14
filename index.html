@@ -112,6 +112,8 @@
     #acc-name { color: #ffd766; font-weight: 700; margin-bottom: 4px; word-break: break-all; }
     #acc-stats { color: #aaa; margin-bottom: 6px; }
     #acc-err { color: #d66; font-size: 11px; min-height: 14px; margin-top: 4px; }
+    .acc-legal { font-size: 10px; color: #887; margin-top: 8px; line-height: 1.6; }
+    .acc-legal a { color: #e7b73c; text-decoration: underline; }
     /* 戰鬥中按鈕 */
     #battle-btns { position: fixed; bottom: 40px; right: 16px; display: flex; flex-direction: column; gap: 8px; }
     #battle-btns.hidden { display: none; }
@@ -312,6 +314,7 @@
         <button id="btn-google">Google 登入</button>
         <button id="btn-apple"> Apple 登入</button>
         <button id="btn-anon">訪客遊玩</button>
+        <div class="acc-legal">登入即表示同意<br><a href="terms.html" target="_blank" rel="noopener">服務條款</a> 與 <a href="privacy.html" target="_blank" rel="noopener">隱私權政策</a></div>
       </div>
       <div id="acc-in" style="display:none">
         <div id="acc-name"></div>
