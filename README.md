@@ -14,6 +14,7 @@
 
 - `public/models/` 角色/武器/盾牌模型與貼圖:[KayKit](https://kaylousberg.itch.io/)(Character Pack: Adventurers、Skeletons,Kay Lousberg 製作,**CC0**)
 - `public/sfx/` 音效:[Kenney](https://kenney.nl)(Impact Sounds、RPG Audio,**CC0**)
+- `public/bgm_waltz.m4a` 背景音樂:小約翰・史特勞斯《藍色多瑙河》,美國海軍陸戰隊軍樂團錄音(公有領域,Wikimedia Commons)
 
 CC0 素材免費商用、無需署名,此處仍列出以示感謝。
 

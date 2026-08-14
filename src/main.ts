@@ -196,7 +196,28 @@ async function initAudio() {
     }));
     sfxBuffers.set(key, bufs);
   }));
+  void startBgm(); // 音效備妥後背景載 BGM(1.5MB 懶載入)
 }
+// BGM:藍色多瑙河(小約翰·史特勞斯),美國海軍陸戰隊軍樂團公版錄音——
+// 遊戲叫圓舞曲,BGM 就是真的圓舞曲;音量壓低墊在音效底下
+let bgmGain: GainNode | null = null;
+let bgmStarted = false;
+async function startBgm() {
+  if (bgmStarted || !audioCtx) return;
+  bgmStarted = true;
+  try {
+    const res = await fetch('bgm_waltz.m4a');
+    const buf = await audioCtx.decodeAudioData(await res.arrayBuffer());
+    const src = audioCtx.createBufferSource();
+    src.buffer = buf;
+    src.loop = true;
+    bgmGain = audioCtx.createGain();
+    bgmGain.gain.value = sfxMuted ? 0 : 0.16;
+    src.connect(bgmGain).connect(audioCtx.destination);
+    src.start();
+  } catch { bgmStarted = false; /* 載入失敗不擋遊戲 */ }
+}
+
 function playSfx(key: string, volume = 1, rate = 1) {
   if (sfxMuted || !audioCtx) return;
   const bufs = sfxBuffers.get(key);
@@ -1148,6 +1169,7 @@ function start(models: Models) {
     sfxMuted = !sfxMuted;
     localStorage.setItem('kd_muted', sfxMuted ? '1' : '0');
     renderSoundBtn();
+    if (bgmGain) bgmGain.gain.value = sfxMuted ? 0 : 0.16; // BGM 跟著開關
     if (!sfxMuted) { initAudio().then(() => playSfx('click', 0.6)); } // 開聲時回饋一聲
   });
   renderSoundBtn();
