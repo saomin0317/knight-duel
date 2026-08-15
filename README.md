@@ -1,6 +1,12 @@
 # 武士圓舞曲 Knight's Waltz
 
-俯視角物理決鬥遊戲(Web 3D)。`npm run dev` 開發、`npm run build` 打包。
+俯視角物理決鬥遊戲(Web 3D)。**[▶ 直接遊玩](https://satsumacreative.tw/kw/)**(免安裝,桌機鍵盤操作)
+
+![開場畫面](docs/screenshot-title.jpg)
+
+武器不是播動畫,是真的物理——劍有重量、旋轉有慣性、傷害由劍刃接觸點的相對速度決定。Three.js + Rapier(WebAssembly)+ TypeScript,無遊戲引擎。
+
+`npm run dev` 開發、`npm run build` 打包。
 
 ## 緣起
 
