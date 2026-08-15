@@ -92,6 +92,11 @@
       border: 2px solid #c0392b; border-radius: 8px; cursor: pointer; font-weight: 700;
     }
     #btn-fight:hover { background: #962525; }
+    #btn-lb {
+      padding: 7px 24px; font-size: 14px; background: rgba(40,36,28,.92); color: #ffd766;
+      border: 1px solid #6b5a3e; border-radius: 8px; cursor: pointer;
+    }
+    #btn-lb:hover { background: rgba(60,52,38,.95); }
     #opp-select { display: flex; gap: 10px; align-items: center; color: #ddd; font-size: 16px; }
     #opp-select button { width: 38px; height: 32px; background: #333; color: #ddd; border: 1px solid #666; border-radius: 6px; cursor: pointer; font-size: 15px; }
     #arena-select { color: #999; font-size: 13px; display: flex; gap: 6px; align-items: center; }
@@ -184,6 +189,39 @@
       margin-top: 14px; width: 100%; padding: 9px 0; background: #7a1f1f;
       color: #ffeedd; border: 1px solid #c0392b; border-radius: 8px; cursor: pointer; font-size: 15px;
     }
+    /* 排行榜(蓋在主畫面上的浮層,風格照鐵匠鋪:深底 + 金字 + 銅框) */
+    #leaderboard {
+      display: none; position: fixed; inset: 0; z-index: 70;
+      background: rgba(8,6,4,.88); align-items: center; justify-content: center;
+    }
+    #leaderboard.open { display: flex; }
+    .lb-box {
+      background: rgba(20,18,14,.98); border: 2px solid #6b5a3e; border-radius: 10px;
+      padding: 14px 16px; width: min(440px, 92vw); max-height: 84vh;
+      display: flex; flex-direction: column; color: #ddd;
+    }
+    .lb-box h2 { margin: 0 0 2px; font-size: 18px; color: #ffd766; }
+    #lb-status { font-size: 11px; color: #887; min-height: 15px; margin-bottom: 6px; }
+    #lb-list { overflow-y: auto; }
+    .lb-row {
+      display: flex; align-items: center; gap: 8px;
+      padding: 4px 6px; font-size: 13px; border-bottom: 1px solid #2a241c;
+    }
+    .lb-row.head { color: #8a7d64; font-size: 11px; border-bottom: 1px solid #4a3f2c; }
+    .lb-row.me { background: rgba(122,31,31,.4); border-radius: 4px; color: #ffd766; }
+    .lb-rank { width: 46px; flex-shrink: 0; color: #c8b48a; }
+    .lb-row.me .lb-rank { color: #ffd766; }
+    .lb-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .lb-lv { width: 62px; text-align: right; flex-shrink: 0; }
+    .lb-wins { width: 58px; text-align: right; flex-shrink: 0; }
+    #lb-me { margin-top: 8px; border-top: 1px solid #4a3f2c; padding-top: 6px; }
+    #lb-me .lb-note { font-size: 11px; color: #887; padding: 0 6px 4px; }
+    #lb-close {
+      margin-top: 12px; width: 100%; padding: 8px 0; font-size: 14px;
+      background: #3a3020; color: #ffd766; border: 1px solid #866f47;
+      border-radius: 6px; cursor: pointer;
+    }
+    #lb-close:hover { background: #4a3d28; }
     #ts-links {
       position: fixed; bottom: 86px; left: 50%; transform: translateX(-50%);
       font-size: 13px; color: #776;
@@ -249,7 +287,11 @@
       #account h4 { margin: 0 0 4px; }
       #menu-bottom { bottom: 12px; gap: 6px; }
       #btn-fight { font-size: 17px; padding: 8px 28px; }
+      #btn-lb { font-size: 12px; padding: 5px 18px; }
       #opp-select { font-size: 12px; }
+      .lb-box { padding: 10px 12px; max-height: 92vh; }
+      .lb-row { font-size: 12px; padding: 3px 5px; }
+      #lb-close { margin-top: 8px; padding: 6px 0; }
 
       #ts-rating img { height: 38px !important; }
       #ts-rating .rtext { font-size: 9px; line-height: 1.5; }
@@ -326,7 +368,17 @@
     <div id="menu-bottom">
       <div id="opp-select"><button id="opp-prev">◀</button><span id="opp-label"></span><button id="opp-next">▶</button></div>
       <button id="btn-fight">⚔ 開始戰鬥</button>
+      <button id="btn-lb">🏆 排行榜</button>
       <button id="btn-install2" class="install-btn">📲 安裝成 App</button>
+    </div>
+  </div>
+  <div id="leaderboard">
+    <div class="lb-box">
+      <h2>🏆 排行榜</h2>
+      <div id="lb-status"></div>
+      <div id="lb-list"></div>
+      <div id="lb-me"></div>
+      <button id="lb-close">關閉</button>
     </div>
   </div>
   <div id="ios-guide">

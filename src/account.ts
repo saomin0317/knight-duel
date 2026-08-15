@@ -17,6 +17,9 @@ export const auth = getAuth(app);
 const API = location.hostname === 'localhost'
   ? 'https://satsumacreative.tw/kw-api/save.php'
   : '/kw-api/save.php';
+const LB_API = location.hostname === 'localhost'
+  ? 'https://satsumacreative.tw/kw-api/leaderboard.php'
+  : '/kw-api/leaderboard.php';
 
 export function loginGoogle() { return signInWithPopup(auth, new GoogleAuthProvider()); }
 export function loginApple() { return signInWithPopup(auth, new OAuthProvider('apple.com')); }
@@ -30,6 +33,18 @@ export async function cloudLoad(user: User): Promise<{ data: unknown; name: stri
   if (!res.ok) throw new Error(`load ${res.status}`);
   const j = await res.json();
   return j.ok ? { data: j.data, name: j.name } : null;
+}
+
+// 排行榜:公開可讀;有登入就附 token,伺服器會多回自己的名次(沒進前 50 也回)
+export type LbRow = { rank: number; name: string; maxLevel: number; wins: number };
+export async function fetchLeaderboard(user: User | null): Promise<{ rows: LbRow[]; me?: LbRow }> {
+  const headers: Record<string, string> = {};
+  if (user) headers.Authorization = `Bearer ${await user.getIdToken()}`;
+  const res = await fetch(LB_API, { headers });
+  if (!res.ok) throw new Error(`leaderboard ${res.status}`);
+  const j = await res.json();
+  if (!j.ok) throw new Error('leaderboard failed');
+  return { rows: Array.isArray(j.rows) ? j.rows : [], me: j.me };
 }
 
 export async function cloudSave(user: User, data: unknown): Promise<void> {

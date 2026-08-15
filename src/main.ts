@@ -3,7 +3,7 @@ import { GLTFLoader, type GLTF } from 'three/addons/loaders/GLTFLoader.js';
 import { clone as cloneSkeleton } from 'three/addons/utils/SkeletonUtils.js';
 import RAPIER from '@dimforge/rapier2d-compat';
 import type { User } from 'firebase/auth';
-import { loginGoogle, loginApple, loginAnon, logout, watchAuth, cloudLoad, cloudSave } from './account';
+import { loginGoogle, loginApple, loginAnon, logout, watchAuth, cloudLoad, cloudSave, fetchLeaderboard, type LbRow } from './account';
 
 // ============================================================
 // 可調參數 — 手感全在這裡,調完存檔瀏覽器會自動重載
@@ -1118,6 +1118,75 @@ function start(models: Models) {
   });
   renderAccount();
 
+  // ---------- 排行榜 ----------
+  // 公開榜(前 50),有登入才另外算自己的名次;整段失敗只顯示訊息,不擋遊戲。
+  const lbEl = document.getElementById('leaderboard')!;
+  const lbListEl = document.getElementById('lb-list')!;
+  const lbStatusEl = document.getElementById('lb-status')!;
+  const lbMeEl = document.getElementById('lb-me')!;
+  const LB_MEDALS = ['🥇', '🥈', '🥉'];
+  const LB_COLS = ['lb-rank', 'lb-name', 'lb-lv', 'lb-wins'];
+  /** 一列:名字是玩家自訂字串,一律 textContent 塞(不用 innerHTML,防 XSS) */
+  function lbLine(cols: string[], cls = ''): HTMLDivElement {
+    const row = document.createElement('div');
+    row.className = cls ? `lb-row ${cls}` : 'lb-row';
+    cols.forEach((text, i) => {
+      const cell = document.createElement('div');
+      cell.className = LB_COLS[i];
+      cell.textContent = text;
+      row.appendChild(cell);
+    });
+    return row;
+  }
+  // maxLevel 是 0-based 索引,玩家看到的關卡數要 +1(跟主畫面「第 N 關」同一套)
+  function lbCols(r: LbRow): string[] {
+    return [LB_MEDALS[r.rank - 1] ?? `${r.rank}`, r.name, `第 ${r.maxLevel + 1} 關`, `${r.wins} 勝`];
+  }
+  function lbNote(text: string): HTMLDivElement {
+    const d = document.createElement('div');
+    d.className = 'lb-note';
+    d.textContent = text;
+    return d;
+  }
+  function closeLeaderboard() { lbEl.classList.remove('open'); }
+  let lbLoading = false;
+  async function openLeaderboard() {
+    lbEl.classList.add('open');
+    if (lbLoading) return;
+    lbLoading = true;
+    lbListEl.replaceChildren();
+    lbMeEl.replaceChildren();
+    lbStatusEl.textContent = '載入中…';
+    try {
+      const { rows, me } = await fetchLeaderboard(currentUser);
+      lbStatusEl.textContent = rows.length
+        ? '比關卡,同關卡比勝場,再同分先到先贏(每分鐘更新)'
+        : '還沒有人上榜,先去打幾場!';
+      lbListEl.appendChild(lbLine(['名次', '玩家', '關卡', '勝場'], 'head'));
+      let meShown = false;
+      for (const r of rows) {
+        // 榜單有 60 秒快取、自己的名次是即時算的,名次+名字都對上才算同一列
+        const isMe = !!me && r.rank === me.rank && r.name === me.name;
+        if (isMe) meShown = true;
+        lbListEl.appendChild(lbLine(lbCols(r), isMe ? 'me' : ''));
+      }
+      if (me && !meShown) {
+        lbMeEl.appendChild(lbNote('你的名次'));
+        lbMeEl.appendChild(lbLine(lbCols(me), 'me'));
+      } else if (!currentUser) {
+        lbMeEl.appendChild(lbNote('登入(訪客也行)並打過一場後,這裡會顯示你的名次'));
+      }
+    } catch (e) {
+      lbStatusEl.textContent = '排行榜讀取失敗,晚點再試(不影響遊戲)';
+      console.warn('leaderboard', e);
+    } finally {
+      lbLoading = false;
+    }
+  }
+  document.getElementById('btn-lb')!.addEventListener('click', () => { playSfx('click', 0.6); void openLeaderboard(); });
+  document.getElementById('lb-close')!.addEventListener('click', () => { playSfx('click', 0.6); closeLeaderboard(); });
+  lbEl.addEventListener('click', (e) => { if (e.target === lbEl) closeLeaderboard(); }); // 點外面關掉
+
   // 開場畫面:點「進入遊戲」同時解鎖 AudioContext(瀏覽器要求使用者手勢後才准出聲)
   const titleEl = document.getElementById('titlescreen')!;
   if (sessionStorage.getItem('kd_title_seen')) titleEl.style.display = 'none';
@@ -1459,7 +1528,10 @@ function start(models: Models) {
     if (k === 'r' && mode === 'battle') restart();
     if (k === 'b') toggleShop();
     if (k === 'n') setOpp(1);
-    if (k === 'escape' && mode === 'battle') openMenu();
+    if (k === 'escape') {
+      if (lbEl.classList.contains('open')) closeLeaderboard();
+      else if (mode === 'battle') openMenu();
+    }
   });
   window.addEventListener('keyup', (e) => keys.delete(e.key.toLowerCase()));
 
