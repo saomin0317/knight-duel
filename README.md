@@ -18,6 +18,8 @@
 
 CC0 素材免費商用、無需署名,此處仍列出以示感謝。
 
-## 版權
+## 授權
 
-遊戲設計與程式 © [薩摩創意 Satsuma Creative](https://satsumacreative.tw)
+- **程式碼**:[GPL-3.0](LICENSE) © [薩摩創意 Satsuma Creative](https://satsumacreative.tw)。可自由使用、修改、商用,但衍生作品必須以同樣條款公開源碼。
+- **素材不在 GPL 授權範圍**:`public/models/`(KayKit,CC0)、`public/sfx/`(Kenney,CC0)、`public/bgm_waltz.m4a`(公有領域錄音)為第三方素材,依其原始授權使用,本專案無權對其再授權;出處見上方「素材授權」。
+- 「武士圓舞曲 / Knight's Waltz」名稱與線上服務(帳號、存檔、排行榜)不隨程式碼授權。
