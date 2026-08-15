@@ -97,6 +97,14 @@
       border: 1px solid #6b5a3e; border-radius: 8px; cursor: pointer;
     }
     #btn-lb:hover { background: rgba(60,52,38,.95); }
+    /* 語言切換(主畫面右上角小鈕) */
+    #btn-lang {
+      position: fixed; top: 14px; right: 16px; z-index: 56; pointer-events: auto;
+      min-width: 34px; padding: 4px 10px; font-size: 12px; font-weight: 700;
+      background: rgba(40,36,28,.85); border: 1px solid #6b5a3e; border-radius: 6px;
+      color: #ffd766; cursor: pointer;
+    }
+    #btn-lang:hover { background: rgba(60,52,38,.95); }
     #opp-select { display: flex; gap: 10px; align-items: center; color: #ddd; font-size: 16px; }
     #opp-select button { width: 38px; height: 32px; background: #333; color: #ddd; border: 1px solid #666; border-radius: 6px; cursor: pointer; font-size: 15px; }
     #arena-select { color: #999; font-size: 13px; display: flex; gap: 6px; align-items: center; }
@@ -309,6 +317,24 @@
     /* 主畫面模式:戰鬥 HUD(血條/體力/標籤)全藏,右手前後鍵也不需要 */
     body.ui-menu .hpbar, body.ui-menu #stamina-player, body.ui-menu .hplabel { display: none; }
     body.ui-menu .tc-r { display: none; }
+    /* 英文模式:字串比中文長,版面要讓一讓(中文模式完全不受影響) */
+    /* 商店改成兩行:第一行 縮圖+名稱+按鈕,屬性獨佔第二行,不擠在窄欄硬折 */
+    body.lang-en .srow { flex-wrap: wrap; }
+    body.lang-en .sname { width: auto; flex: 1; font-size: 13px; }
+    body.lang-en .sstat { flex: 0 0 100%; order: 4; font-size: 10px; padding-left: 52px; }
+    body.lang-en #opp-select { font-size: 14px; }
+    body.lang-en #hint { font-size: 12px; }
+    @media (max-width: 700px) {
+      #btn-lang { top: 8px; right: 8px; padding: 3px 8px; font-size: 11px; }
+      body.lang-en .sname { font-size: 12px; }
+      body.lang-en .sstat { padding-left: 42px; }
+      body.lang-en #opp-select { font-size: 11px; }
+      body.lang-en #ts-sub { letter-spacing: 2px; }
+    }
+    @media (max-height: 520px) {
+      #btn-lang { top: 8px; right: 8px; padding: 3px 8px; font-size: 11px; }
+      body.lang-en #opp-select { font-size: 11px; }
+    }
   </style>
 </head>
 <body>
@@ -322,13 +348,13 @@
   <div id="gold">💰 0</div>
   <button id="btn-sound" title="聲音開關">🔊</button>
   <div id="shop">
-    <h2>鐵匠鋪</h2>
+    <h2 id="shop-title">鐵匠鋪</h2>
     <div id="shop-items"></div>
-    <div class="shop-note">按 B 開關|買到手後點「裝備」立刻換裝(重開本場)</div>
+    <div id="shop-note" class="shop-note">按 B 開關|買到手後點「裝備」立刻換裝(重開本場)</div>
   </div>
   <div id="loading">
-    <div class="ld-name">⚔ 武士圓舞曲</div>
-    <div class="ld-text">載入中…</div>
+    <div id="ld-name" class="ld-name">⚔ 武士圓舞曲</div>
+    <div id="ld-text" class="ld-text">載入中…</div>
   </div>
   <div id="titlescreen">
     <div id="ts-name">⚔ 武士圓舞曲</div>
@@ -336,31 +362,43 @@
     <button id="btn-start">進入遊戲</button>
     <button id="btn-install" class="install-btn">📲 安裝成 App</button>
     <div id="ts-links">
-      <a href="about.html" target="_blank" rel="noopener">關於本遊戲</a>|<a href="terms.html" target="_blank" rel="noopener">服務條款</a>|<a href="privacy.html" target="_blank" rel="noopener">隱私權政策</a>
+      <a id="lnk-about" href="about.html" target="_blank" rel="noopener">關於本遊戲</a>|<a id="lnk-terms" href="terms.html" target="_blank" rel="noopener">服務條款</a>|<a id="lnk-privacy" href="privacy.html" target="_blank" rel="noopener">隱私權政策</a>
     </div>
     <!-- 遊戲分級標章(官方標準圖,遊戲軟體分級管理辦法:宣傳/使用頁面須標示) -->
+    <!-- 法規文字依規定照原樣保留,不隨介面語言翻譯;英文模式只在下方補一行說明 -->
     <div id="ts-rating">
       <img src="rating_15.png" alt="輔導十五歲級" style="height:52px">
-      <div class="rtext">本遊戲為輔導十五歲級,未滿十五歲之人不得使用<br>部分內容涉及暴力、血腥情節|依遊戲軟體分級管理辦法標示</div>
+      <div class="rtext">本遊戲為輔導十五歲級,未滿十五歲之人不得使用<br>部分內容涉及暴力、血腥情節|依遊戲軟體分級管理辦法標示<span id="rating-en" style="display:none"><br>Contains blood and dismemberment. Rated 15+ in Taiwan.</span></div>
     </div>
   </div>
   <script>
     // 開場畫面只在本分頁第一次出現——這裡就要判斷,不能等遊戲載完才藏
     // (正式站模型下載要幾秒,晚藏的話每次 reload 都會閃出開場畫面)
     if (sessionStorage.getItem('kd_title_seen')) document.getElementById('titlescreen').style.display = 'none';
+    // 載入畫面在主程式下載完成前就會出現,英文使用者不該先看到中文
+    //(偵測規則與 src/i18n.ts 一致:localStorage 優先,否則看 navigator.language)
+    try {
+      var kwLang = localStorage.getItem('kw-lang');
+      if (kwLang !== 'zh' && (kwLang === 'en' || !/^zh/i.test(navigator.language || ''))) {
+        document.documentElement.lang = 'en';
+        document.getElementById('ld-name').textContent = "⚔ Knight's Waltz";
+        document.getElementById('ld-text').textContent = 'Loading…';
+      }
+    } catch (e) { /* 私密模式讀不到 localStorage 就照預設中文 */ }
   </script>
   <div id="menu">
     <div id="menu-title">⚔ 武士圓舞曲</div>
-    <div id="hero-label">◀ ▶ 或滑鼠拖曳旋轉人物<br>鐵匠鋪買的裝備會直接穿在身上</div>
+    <button id="btn-lang" title="Switch to English">EN</button>
+    <div id="hero-label"><span id="hero-l1">◀ ▶ 或滑鼠拖曳旋轉人物</span><br><span id="hero-l2">鐵匠鋪買的裝備會直接穿在身上</span></div>
     <div id="account">
       <h4 id="acc-head">帳號</h4>
       <!-- 外站模式(itch.io 等第三方網域)才顯示:登入區換成導回官網的一行 -->
-      <div id="acc-ext" style="display:none"><a href="https://satsumacreative.tw/kw" target="_blank" rel="noopener">雲端存檔與排行榜列名,請玩官網版 satsumacreative.tw/kw</a></div>
+      <div id="acc-ext" style="display:none"><a id="acc-ext-link" href="https://satsumacreative.tw/kw" target="_blank" rel="noopener">雲端存檔與排行榜列名,請玩官網版 satsumacreative.tw/kw</a></div>
       <div id="acc-out">
         <button id="btn-google">Google 登入</button>
         <button id="btn-apple"> Apple 登入</button>
         <button id="btn-anon">訪客遊玩</button>
-        <div class="acc-legal">登入即表示同意<br><a href="terms.html" target="_blank" rel="noopener">服務條款</a> 與 <a href="privacy.html" target="_blank" rel="noopener">隱私權政策</a></div>
+        <div class="acc-legal"><span id="acc-legal-text">登入即表示同意</span><br><a id="lnk-terms2" href="terms.html" target="_blank" rel="noopener">服務條款</a> <span id="acc-and">與</span> <a id="lnk-privacy2" href="privacy.html" target="_blank" rel="noopener">隱私權政策</a></div>
       </div>
       <div id="acc-in" style="display:none">
         <div id="acc-name"></div>
@@ -378,7 +416,7 @@
   </div>
   <div id="leaderboard">
     <div class="lb-box">
-      <h2>🏆 排行榜</h2>
+      <h2 id="lb-title">🏆 排行榜</h2>
       <div id="lb-status"></div>
       <div id="lb-list"></div>
       <div id="lb-me"></div>
@@ -387,11 +425,11 @@
   </div>
   <div id="ios-guide">
     <div class="ig-box">
-      <b>安裝到 iPhone 主畫面:</b><br>
-      1. 點 Safari 下方的<b>分享</b>鈕 <span style="font-size:18px">⎋</span><br>
-      2. 往下捲,選<b>「加入主畫面」</b><br>
-      3. 點<b>「新增」</b>完成!<br>
-      <span style="font-size:12px;color:#998">之後從主畫面開啟就是全螢幕 App</span>
+      <b id="ig-title">安裝到 iPhone 主畫面:</b><br>
+      <span id="ig-s1">1. 點 Safari 下方的<b>分享</b>鈕</span> <span style="font-size:18px">⎋</span><br>
+      <span id="ig-s2">2. 往下捲,選<b>「加入主畫面」</b></span><br>
+      <span id="ig-s3">3. 點<b>「新增」</b>完成!</span><br>
+      <span id="ig-foot" style="font-size:12px;color:#998">之後從主畫面開啟就是全螢幕 App</span>
       <button id="ig-close">知道了</button>
     </div>
   </div>

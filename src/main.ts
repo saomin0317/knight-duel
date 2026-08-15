@@ -4,6 +4,7 @@ import { clone as cloneSkeleton } from 'three/addons/utils/SkeletonUtils.js';
 import RAPIER from '@dimforge/rapier2d-compat';
 import type { User } from 'firebase/auth';
 import { loginGoogle, loginApple, loginAnon, logout, watchAuth, cloudLoad, cloudSave, fetchLeaderboard, IS_OFFSITE, type LbRow } from './account';
+import { t, getLang, setLang, mapServerName, type Key } from './i18n';
 
 // ============================================================
 // 可調參數 — 手感全在這裡,調完存檔瀏覽器會自動重載
@@ -46,27 +47,28 @@ const CFG = {
 //   shieldBreak 破盾:打中盾把盾撞開的力道——斧系高(破龜守)、杖系低(戳盾會滑開)
 //   staminaMult 耗體:重武器揮舞更耗體力——重斧painful但容易力竭
 //   thorns 反傷:尖刺盾被打到會刺傷攻擊者
-type WeaponDef = { model: string; label: string; length: number; density: number; dmgMult: number; price: number; shieldBreak: number; staminaMult: number };
-type ShieldDef = { model: string; label: string; halfWidth: number; density: number; price: number; thorns?: number };
+// nameKey = i18n 字串表的 key(顯示名在 src/i18n.ts,中英各一份)
+type WeaponDef = { model: string; nameKey: Key; length: number; density: number; dmgMult: number; price: number; shieldBreak: number; staminaMult: number };
+type ShieldDef = { model: string; nameKey: Key; halfWidth: number; density: number; price: number; thorns?: number };
 const WEAPONS: Record<string, WeaponDef> = {
-  sword1h: { model: 'sword_1handed', label: '短劍', length: 1.15 * S, density: 0.18 / (S * S), dmgMult: 0.8, price: 0, shieldBreak: 0.5, staminaMult: 0.85 },
-  axe1h: { model: 'axe_1handed', label: '單手斧', length: 1.1 * S, density: 0.35 / (S * S), dmgMult: 1.3, price: 120, shieldBreak: 1.1, staminaMult: 1.1 },
-  staff: { model: 'staff', label: '長木杖', length: 1.7 * S, density: 0.2 / (S * S), dmgMult: 0.85, price: 150, shieldBreak: 0.25, staminaMult: 0.9 },
-  skelBlade: { model: 'Skeleton_Blade', label: '骷髏彎刀', length: 1.3 * S, density: 0.28 / (S * S), dmgMult: 1.1, price: 200, shieldBreak: 0.7, staminaMult: 0.95 },
-  skelStaff: { model: 'Skeleton_Staff', label: '骨杖', length: 1.8 * S, density: 0.24 / (S * S), dmgMult: 0.95, price: 240, shieldBreak: 0.3, staminaMult: 0.95 },
-  sword2h: { model: 'sword_2handed', label: '雙手大劍', length: 1.6 * S, density: 0.25 / (S * S), dmgMult: 1.0, price: 260, shieldBreak: 0.8, staminaMult: 1.0 },
-  skelAxe: { model: 'Skeleton_Axe', label: '骷髏斧', length: 1.25 * S, density: 0.42 / (S * S), dmgMult: 1.5, price: 300, shieldBreak: 1.4, staminaMult: 1.25 },
-  axe2h: { model: 'axe_2handed', label: '雙手大斧', length: 1.35 * S, density: 0.5 / (S * S), dmgMult: 1.7, price: 380, shieldBreak: 1.7, staminaMult: 1.35 },
+  sword1h: { model: 'sword_1handed', nameKey: 'weapon.sword1h', length: 1.15 * S, density: 0.18 / (S * S), dmgMult: 0.8, price: 0, shieldBreak: 0.5, staminaMult: 0.85 },
+  axe1h: { model: 'axe_1handed', nameKey: 'weapon.axe1h', length: 1.1 * S, density: 0.35 / (S * S), dmgMult: 1.3, price: 120, shieldBreak: 1.1, staminaMult: 1.1 },
+  staff: { model: 'staff', nameKey: 'weapon.staff', length: 1.7 * S, density: 0.2 / (S * S), dmgMult: 0.85, price: 150, shieldBreak: 0.25, staminaMult: 0.9 },
+  skelBlade: { model: 'Skeleton_Blade', nameKey: 'weapon.skelBlade', length: 1.3 * S, density: 0.28 / (S * S), dmgMult: 1.1, price: 200, shieldBreak: 0.7, staminaMult: 0.95 },
+  skelStaff: { model: 'Skeleton_Staff', nameKey: 'weapon.skelStaff', length: 1.8 * S, density: 0.24 / (S * S), dmgMult: 0.95, price: 240, shieldBreak: 0.3, staminaMult: 0.95 },
+  sword2h: { model: 'sword_2handed', nameKey: 'weapon.sword2h', length: 1.6 * S, density: 0.25 / (S * S), dmgMult: 1.0, price: 260, shieldBreak: 0.8, staminaMult: 1.0 },
+  skelAxe: { model: 'Skeleton_Axe', nameKey: 'weapon.skelAxe', length: 1.25 * S, density: 0.42 / (S * S), dmgMult: 1.5, price: 300, shieldBreak: 1.4, staminaMult: 1.25 },
+  axe2h: { model: 'axe_2handed', nameKey: 'weapon.axe2h', length: 1.35 * S, density: 0.5 / (S * S), dmgMult: 1.7, price: 380, shieldBreak: 1.7, staminaMult: 1.35 },
 };
 const SHIELDS: Record<string, ShieldDef> = {
-  badge: { model: 'shield_badge', label: '徽章小盾', halfWidth: 0.34 * S, density: 0.4 / (S * S), price: 0 },
-  skelSmallA: { model: 'Skeleton_Shield_Small_A', label: '骨片小盾', halfWidth: 0.36 * S, density: 0.45 / (S * S), price: 80 },
-  skelSmallB: { model: 'Skeleton_Shield_Small_B', label: '裂骨小盾', halfWidth: 0.38 * S, density: 0.42 / (S * S), price: 90 },
-  round: { model: 'shield_round', label: '圓盾', halfWidth: 0.46 * S, density: 0.5 / (S * S), price: 120 },
-  square: { model: 'shield_square', label: '方盾', halfWidth: 0.42 * S, density: 0.55 / (S * S), price: 160 },
-  skelLargeA: { model: 'Skeleton_Shield_Large_A', label: '骨牆大盾', halfWidth: 0.48 * S, density: 0.6 / (S * S), price: 200 },
-  skelLargeB: { model: 'Skeleton_Shield_Large_B', label: '骸骨大盾', halfWidth: 0.5 * S, density: 0.58 / (S * S), price: 220 },
-  spikes: { model: 'shield_spikes', label: '尖刺盾', halfWidth: 0.43 * S, density: 0.65 / (S * S), price: 240, thorns: 9 },
+  badge: { model: 'shield_badge', nameKey: 'shield.badge', halfWidth: 0.34 * S, density: 0.4 / (S * S), price: 0 },
+  skelSmallA: { model: 'Skeleton_Shield_Small_A', nameKey: 'shield.skelSmallA', halfWidth: 0.36 * S, density: 0.45 / (S * S), price: 80 },
+  skelSmallB: { model: 'Skeleton_Shield_Small_B', nameKey: 'shield.skelSmallB', halfWidth: 0.38 * S, density: 0.42 / (S * S), price: 90 },
+  round: { model: 'shield_round', nameKey: 'shield.round', halfWidth: 0.46 * S, density: 0.5 / (S * S), price: 120 },
+  square: { model: 'shield_square', nameKey: 'shield.square', halfWidth: 0.42 * S, density: 0.55 / (S * S), price: 160 },
+  skelLargeA: { model: 'Skeleton_Shield_Large_A', nameKey: 'shield.skelLargeA', halfWidth: 0.48 * S, density: 0.6 / (S * S), price: 200 },
+  skelLargeB: { model: 'Skeleton_Shield_Large_B', nameKey: 'shield.skelLargeB', halfWidth: 0.5 * S, density: 0.58 / (S * S), price: 220 },
+  spikes: { model: 'shield_spikes', nameKey: 'shield.spikes', halfWidth: 0.43 * S, density: 0.65 / (S * S), price: 240, thorns: 9 },
 };
 
 // ---------- AI 個性:六種進攻策略 ----------
@@ -96,23 +98,23 @@ const AI_STYLES: Record<AiStyle, AiParams> = {
 
 // ---------- 敵人階梯:12 關,個性/配裝/體型/賞金遞增(後段=重混精英) ----------
 type Foe = {
-  char: string; label: string; weapon: string; shield: string; tint: number;
+  char: string; nameKey: Key; weapon: string; shield: string; tint: number;
   hpMult: number; moveMult: number; swingMult: number; heightMult: number; reward: number;
   style: AiStyle;
 };
 const ENEMY_ROSTER: Foe[] = [
-  { char: 'skelMinion', label: '骷髏小兵', weapon: 'skelBlade', shield: 'skelSmallA', tint: 0x88ff88, hpMult: 0.7, moveMult: 0.85, swingMult: 0.8, heightMult: 0.85, reward: 40, style: 'brawler' },
-  { char: 'rogue', label: '盜賊', weapon: 'sword1h', shield: 'badge', tint: 0xdd4466, hpMult: 0.9, moveMult: 1.1, swingMult: 0.9, heightMult: 1.0, reward: 60, style: 'assassin' },
-  { char: 'skelRogue', label: '骷髏遊蕩者', weapon: 'skelBlade', shield: 'skelSmallB', tint: 0x66dd66, hpMult: 1.1, moveMult: 1.15, swingMult: 1.0, heightMult: 0.95, reward: 85, style: 'brawler' },
-  { char: 'rogueHooded', label: '刺客', weapon: 'axe1h', shield: 'square', tint: 0x995544, hpMult: 1.3, moveMult: 1.2, swingMult: 1.05, heightMult: 1.0, reward: 115, style: 'assassin' },
-  { char: 'skelMage', label: '骷髏法師', weapon: 'skelStaff', shield: 'skelSmallB', tint: 0x55ccbb, hpMult: 1.5, moveMult: 1.0, swingMult: 1.1, heightMult: 1.0, reward: 150, style: 'kiter' },
-  { char: 'barbarian', label: '野蠻人', weapon: 'axe2h', shield: 'spikes', tint: 0xff5544, hpMult: 1.8, moveMult: 1.0, swingMult: 1.15, heightMult: 1.05, reward: 190, style: 'berserker' },
-  { char: 'mage', label: '法師', weapon: 'staff', shield: 'round', tint: 0xcc55cc, hpMult: 2.1, moveMult: 1.05, swingMult: 1.25, heightMult: 1.0, reward: 240, style: 'kiter' },
-  { char: 'skelWarrior', label: '骷髏戰士', weapon: 'skelAxe', shield: 'skelLargeA', tint: 0x44ff99, hpMult: 2.5, moveMult: 1.05, swingMult: 1.3, heightMult: 1.08, reward: 300, style: 'guardian' },
-  { char: 'rogueHooded', label: '影武者', weapon: 'sword2h', shield: 'badge', tint: 0x333344, hpMult: 1.9, moveMult: 1.1, swingMult: 1.2, heightMult: 1.0, reward: 360, style: 'spinner' },
-  { char: 'barbarian', label: '蠻王', weapon: 'axe2h', shield: 'skelLargeB', tint: 0x882211, hpMult: 2.4, moveMult: 1.15, swingMult: 1.3, heightMult: 1.15, reward: 430, style: 'berserker' },
-  { char: 'mage', label: '大法師', weapon: 'skelStaff', shield: 'round', tint: 0x7722aa, hpMult: 2.6, moveMult: 1.1, swingMult: 1.4, heightMult: 1.05, reward: 500, style: 'kiter' },
-  { char: 'skelWarrior', label: '骷髏王', weapon: 'skelAxe', shield: 'spikes', tint: 0xffcc33, hpMult: 3.0, moveMult: 1.1, swingMult: 1.45, heightMult: 1.15, reward: 600, style: 'guardian' },
+  { char: 'skelMinion', nameKey: 'foe.skelMinion', weapon: 'skelBlade', shield: 'skelSmallA', tint: 0x88ff88, hpMult: 0.7, moveMult: 0.85, swingMult: 0.8, heightMult: 0.85, reward: 40, style: 'brawler' },
+  { char: 'rogue', nameKey: 'foe.rogue', weapon: 'sword1h', shield: 'badge', tint: 0xdd4466, hpMult: 0.9, moveMult: 1.1, swingMult: 0.9, heightMult: 1.0, reward: 60, style: 'assassin' },
+  { char: 'skelRogue', nameKey: 'foe.skelRogue', weapon: 'skelBlade', shield: 'skelSmallB', tint: 0x66dd66, hpMult: 1.1, moveMult: 1.15, swingMult: 1.0, heightMult: 0.95, reward: 85, style: 'brawler' },
+  { char: 'rogueHooded', nameKey: 'foe.assassin', weapon: 'axe1h', shield: 'square', tint: 0x995544, hpMult: 1.3, moveMult: 1.2, swingMult: 1.05, heightMult: 1.0, reward: 115, style: 'assassin' },
+  { char: 'skelMage', nameKey: 'foe.skelMage', weapon: 'skelStaff', shield: 'skelSmallB', tint: 0x55ccbb, hpMult: 1.5, moveMult: 1.0, swingMult: 1.1, heightMult: 1.0, reward: 150, style: 'kiter' },
+  { char: 'barbarian', nameKey: 'foe.barbarian', weapon: 'axe2h', shield: 'spikes', tint: 0xff5544, hpMult: 1.8, moveMult: 1.0, swingMult: 1.15, heightMult: 1.05, reward: 190, style: 'berserker' },
+  { char: 'mage', nameKey: 'foe.mage', weapon: 'staff', shield: 'round', tint: 0xcc55cc, hpMult: 2.1, moveMult: 1.05, swingMult: 1.25, heightMult: 1.0, reward: 240, style: 'kiter' },
+  { char: 'skelWarrior', nameKey: 'foe.skelWarrior', weapon: 'skelAxe', shield: 'skelLargeA', tint: 0x44ff99, hpMult: 2.5, moveMult: 1.05, swingMult: 1.3, heightMult: 1.08, reward: 300, style: 'guardian' },
+  { char: 'rogueHooded', nameKey: 'foe.shadow', weapon: 'sword2h', shield: 'badge', tint: 0x333344, hpMult: 1.9, moveMult: 1.1, swingMult: 1.2, heightMult: 1.0, reward: 360, style: 'spinner' },
+  { char: 'barbarian', nameKey: 'foe.warlord', weapon: 'axe2h', shield: 'skelLargeB', tint: 0x882211, hpMult: 2.4, moveMult: 1.15, swingMult: 1.3, heightMult: 1.15, reward: 430, style: 'berserker' },
+  { char: 'mage', nameKey: 'foe.archmage', weapon: 'skelStaff', shield: 'round', tint: 0x7722aa, hpMult: 2.6, moveMult: 1.1, swingMult: 1.4, heightMult: 1.05, reward: 500, style: 'kiter' },
+  { char: 'skelWarrior', nameKey: 'foe.skelKing', weapon: 'skelAxe', shield: 'spikes', tint: 0xffcc33, hpMult: 3.0, moveMult: 1.1, swingMult: 1.45, heightMult: 1.15, reward: 600, style: 'guardian' },
 ];
 
 // ---------- 存檔:金幣 / 擁有 / 裝備中 / 戰績 ----------
@@ -230,6 +232,76 @@ function playSfx(key: string, volume = 1, rate = 1) {
   src.connect(gain).connect(audioCtx.destination);
   src.start();
 }
+
+// ---------- 介面語言:靜態文案套用 + 切換 ----------
+// index.html 裡寫死的中文全部在這裡覆寫;需要重畫的動態區塊各自註冊 hook。
+const langRedraws: (() => void)[] = [];
+function onLangChange(fn: () => void) { langRedraws.push(fn); fn(); }
+function applyStaticI18n() {
+  document.body.classList.toggle('lang-en', getLang() === 'en');
+  const setText = (id: string, key: Key) => { const el = document.getElementById(id); if (el) el.textContent = t(key); };
+  const setHtml = (id: string, key: Key) => { const el = document.getElementById(id); if (el) el.innerHTML = t(key); };
+  // 開場 / 載入
+  setText('ld-name', 'game.name');
+  setText('ld-text', 'loading.text');
+  setText('ts-name', 'game.name');
+  setText('ts-sub', 'ts.sub');
+  setText('btn-start', 'btn.start');
+  setText('btn-install', 'btn.install');
+  setText('btn-install2', 'btn.install');
+  setText('lnk-about', 'link.about');
+  setText('lnk-terms', 'link.terms');
+  setText('lnk-privacy', 'link.privacy');
+  // 分級標章的法規文字照留;英文模式只多一行說明
+  const ratingEn = document.getElementById('rating-en');
+  if (ratingEn) ratingEn.style.display = getLang() === 'en' ? 'inline' : 'none';
+  // 主畫面
+  setText('menu-title', 'game.name');
+  setText('hero-l1', 'hero.l1');
+  setText('hero-l2', 'hero.l2');
+  setText('btn-fight', 'btn.fight');
+  setText('btn-lb', 'btn.lb');
+  const langBtn = document.getElementById('btn-lang');
+  if (langBtn) { langBtn.textContent = t('lang.btn'); langBtn.title = t('lang.title'); }
+  // 帳號
+  setText('acc-head', 'acc.head');
+  setText('acc-ext-link', 'acc.offsite');
+  setText('btn-google', 'acc.google');
+  setText('btn-apple', 'acc.apple');
+  setText('btn-anon', 'acc.anon');
+  setText('acc-legal-text', 'acc.legal');
+  setText('acc-and', 'acc.and');
+  setText('lnk-terms2', 'link.terms');
+  setText('lnk-privacy2', 'link.privacy');
+  setText('btn-logout', 'acc.logout');
+  // 鐵匠鋪 / 戰鬥列 / 提示
+  setText('shop-title', 'shop.title');
+  setText('shop-note', 'shop.note');
+  setText('btn-restart', 'btn.restart');
+  setText('btn-shop2', 'btn.shop');
+  setText('btn-menu', 'btn.menu');
+  setText('hint', 'hud.hint');
+  setText('rotate-hint', 'rotate.hint');
+  setText('label-player', 'label.player');
+  const soundBtnEl = document.getElementById('btn-sound');
+  if (soundBtnEl) soundBtnEl.title = t('sound.title');
+  // 排行榜
+  setText('lb-title', 'lb.title');
+  setText('lb-close', 'lb.close');
+  // iOS 安裝教學(字串含 <b> 標記)
+  setText('ig-title', 'ig.title');
+  setHtml('ig-s1', 'ig.s1');
+  setHtml('ig-s2', 'ig.s2');
+  setHtml('ig-s3', 'ig.s3');
+  setText('ig-foot', 'ig.foot');
+  setText('ig-close', 'ig.ok');
+  for (const fn of langRedraws) fn();
+}
+applyStaticI18n();
+document.getElementById('btn-lang')?.addEventListener('click', () => {
+  setLang(getLang() === 'zh' ? 'en' : 'zh');
+  applyStaticI18n(); // 即時重畫,不重載頁面
+});
 
 const app = document.getElementById('app')!;
 const msgEl = document.getElementById('msg')!;
@@ -362,7 +434,7 @@ async function boot() {
     await bootInner();
     document.getElementById('loading')!.style.display = 'none';
   } catch (e) {
-    document.querySelector('#loading .ld-text')!.textContent = '載入失敗,請重新整理再試';
+    document.querySelector('#loading .ld-text')!.textContent = t('loading.failed');
     throw e;
   }
 }
@@ -911,7 +983,9 @@ function start(models: Models) {
   const foe = ENEMY_ROSTER[enemyIdx];
   const player = new Knight(-2.6, 0, 0, 0x5588ff, 0, true, models.chars.knight, SAVE.eqW, SAVE.eqS);
   const enemy = new Knight(2.6, 0.8, Math.PI + 0.3, foe.tint, 1, false, models.chars[foe.char], foe.weapon, foe.shield, foe);
-  document.getElementById('label-enemy')!.textContent = `敵人(${foe.label}·賞金${foe.reward})`;
+  onLangChange(() => {
+    document.getElementById('label-enemy')!.textContent = t('label.enemy', { name: t(foe.nameKey), reward: foe.reward });
+  });
 
   // ---------- 金幣 HUD + 鐵匠鋪 ----------
   const goldEl = document.getElementById('gold')!;
@@ -923,26 +997,26 @@ function start(models: Models) {
   function updateGold() { goldEl.textContent = `💰 ${SAVE.gold}`; }
   function weightLabel(rawDensity: number): string {
     const d = rawDensity * S * S;
-    return d >= 0.4 ? '重' : d >= 0.24 ? '中' : '輕';
+    return d >= 0.4 ? t('weight.heavy') : d >= 0.24 ? t('weight.medium') : t('weight.light');
   }
   function renderShop() {
-    let html = '<h3>武器</h3>';
+    let html = `<h3>${t('shop.weapons')}</h3>`;
     for (const [k, w] of Object.entries(WEAPONS)) {
       const owned = SAVE.ownedW.includes(k);
       const eq = SAVE.eqW === k;
       const cant = !owned && SAVE.gold < w.price;
-      html += `<div class="srow"><img class="thumb" src="${thumbOf(w.model)}"><span class="sname">${w.label}</span>
-        <span class="sstat">長 ${w.length.toFixed(1)}|${weightLabel(w.density)}|威力 x${w.dmgMult}</span>
-        <button data-t="w" data-k="${k}" class="${eq ? 'eq' : cant ? 'cant' : ''}">${eq ? '裝備中' : owned ? '裝備' : `${w.price} 金`}</button></div>`;
+      html += `<div class="srow"><img class="thumb" src="${thumbOf(w.model)}"><span class="sname">${t(w.nameKey)}</span>
+        <span class="sstat">${t('stat.weapon', { len: w.length.toFixed(1), weight: weightLabel(w.density), mult: w.dmgMult })}</span>
+        <button data-t="w" data-k="${k}" class="${eq ? 'eq' : cant ? 'cant' : ''}">${eq ? t('shop.equipped') : owned ? t('shop.equip') : t('shop.price', { n: w.price })}</button></div>`;
     }
-    html += '<h3>盾牌</h3>';
+    html += `<h3>${t('shop.shields')}</h3>`;
     for (const [k, s] of Object.entries(SHIELDS)) {
       const owned = SAVE.ownedS.includes(k);
       const eq = SAVE.eqS === k;
       const cant = !owned && SAVE.gold < s.price;
-      html += `<div class="srow"><img class="thumb" src="${thumbOf(s.model)}"><span class="sname">${s.label}</span>
-        <span class="sstat">寬 ${(s.halfWidth * 2).toFixed(1)}|${weightLabel(s.density)}</span>
-        <button data-t="s" data-k="${k}" class="${eq ? 'eq' : cant ? 'cant' : ''}">${eq ? '裝備中' : owned ? '裝備' : `${s.price} 金`}</button></div>`;
+      html += `<div class="srow"><img class="thumb" src="${thumbOf(s.model)}"><span class="sname">${t(s.nameKey)}</span>
+        <span class="sstat">${t('stat.shield', { w: (s.halfWidth * 2).toFixed(1), weight: weightLabel(s.density) })}</span>
+        <button data-t="s" data-k="${k}" class="${eq ? 'eq' : cant ? 'cant' : ''}">${eq ? t('shop.equipped') : owned ? t('shop.equip') : t('shop.price', { n: s.price })}</button></div>`;
     }
     shopItemsEl.innerHTML = html;
     shopItemsEl.querySelectorAll('button').forEach((btn) => {
@@ -973,6 +1047,7 @@ function start(models: Models) {
     shopEl.classList.toggle('open', shopOpen);
     if (shopOpen) renderShop();
   }
+  langRedraws.push(() => { if (shopOpen) renderShop(); }); // 切語言時商店開著就重畫
   updateGold();
 
   // ---------- 裝備縮圖:離屏渲染模型生成,不用外部圖 ----------
@@ -1020,7 +1095,7 @@ function start(models: Models) {
     enemy.shieldArm.group.visible = v;
   }
   function updateMenuUI() {
-    oppLabelEl.textContent = `第 ${enemyIdx + 1} 關|${foe.label}|血量 x${foe.hpMult}|賞金 ${foe.reward}`;
+    oppLabelEl.textContent = t('menu.level', { n: enemyIdx + 1, name: t(foe.nameKey), hp: foe.hpMult, reward: foe.reward });
     const prev = document.getElementById('opp-prev') as HTMLButtonElement;
     const next = document.getElementById('opp-next') as HTMLButtonElement;
     prev.disabled = enemyIdx <= 0;
@@ -1029,6 +1104,7 @@ function start(models: Models) {
     prev.style.opacity = prev.disabled ? '0.3' : '1';
     next.style.opacity = next.disabled ? '0.5' : '1';
   }
+  langRedraws.push(updateMenuUI);
   function openMenu() {
     mode = 'menu';
     localStorage.setItem('kd_mode', 'menu');
@@ -1083,12 +1159,13 @@ function start(models: Models) {
     const u = currentUser;
     accOut.style.display = u ? 'none' : 'block';
     accIn.style.display = u ? 'block' : 'none';
-    if (u) accName.textContent = u.isAnonymous ? `訪客-${u.uid.slice(0, 4)}` : (u.displayName || u.email || u.uid.slice(0, 8));
-    accStats.textContent = `戰績:${SAVE.wins} 勝 ${SAVE.losses} 敗`;
+    if (u) accName.textContent = u.isAnonymous ? t('acc.guest', { id: u.uid.slice(0, 4) }) : (u.displayName || u.email || u.uid.slice(0, 8));
+    accStats.textContent = t('acc.record', { w: SAVE.wins, l: SAVE.losses });
   }
+  langRedraws.push(renderAccount);
   function doLogin(fn: () => Promise<unknown>) {
     accErr.textContent = '';
-    fn().catch((e: Error) => { accErr.textContent = `登入失敗:${e.message.slice(0, 60)}`; });
+    fn().catch((e: Error) => { accErr.textContent = t('acc.loginFail', { msg: e.message.slice(0, 60) }); });
   }
   // 外站模式(itch.io 等第三方 iframe 網域):Firebase 授權網域不含對方網域,登入必失敗,
   // 所以整個登入區藏起來換成一行導回官網的連結;存檔照走既有的 localStorage 本機路徑。
@@ -1122,7 +1199,7 @@ function start(models: Models) {
           cloudSave(u, SAVE).catch(() => {});
         }
       } catch (e) {
-        accErr.textContent = '雲端同步失敗(進度仍存在本機)';
+        accErr.textContent = t('acc.syncFail');
         console.warn('cloud sync', e);
       }
     });
@@ -1150,8 +1227,9 @@ function start(models: Models) {
     return row;
   }
   // maxLevel 是 0-based 索引,玩家看到的關卡數要 +1(跟主畫面「第 N 關」同一套)
+  // 玩家名是伺服器回的資料,照顯示(只有預設名「無名武士」在英文模式做顯示層映射)
   function lbCols(r: LbRow): string[] {
-    return [LB_MEDALS[r.rank - 1] ?? `${r.rank}`, r.name, `第 ${r.maxLevel + 1} 關`, `${r.wins} 勝`];
+    return [LB_MEDALS[r.rank - 1] ?? `${r.rank}`, mapServerName(r.name), t('lb.stage', { n: r.maxLevel + 1 }), t('lb.wins', { n: r.wins })];
   }
   function lbNote(text: string): HTMLDivElement {
     const d = document.createElement('div');
@@ -1167,13 +1245,11 @@ function start(models: Models) {
     lbLoading = true;
     lbListEl.replaceChildren();
     lbMeEl.replaceChildren();
-    lbStatusEl.textContent = '載入中…';
+    lbStatusEl.textContent = t('lb.loading');
     try {
       const { rows, me } = await fetchLeaderboard(currentUser);
-      lbStatusEl.textContent = rows.length
-        ? '比關卡,同關卡比勝場,再同分先到先贏(每分鐘更新)'
-        : '還沒有人上榜,先去打幾場!';
-      lbListEl.appendChild(lbLine(['名次', '玩家', '關卡', '勝場'], 'head'));
+      lbStatusEl.textContent = rows.length ? t('lb.rule') : t('lb.empty');
+      lbListEl.appendChild(lbLine([t('lb.col.rank'), t('lb.col.name'), t('lb.col.stage'), t('lb.col.wins')], 'head'));
       let meShown = false;
       for (const r of rows) {
         // 榜單有 60 秒快取、自己的名次是即時算的,名次+名字都對上才算同一列
@@ -1182,15 +1258,13 @@ function start(models: Models) {
         lbListEl.appendChild(lbLine(lbCols(r), isMe ? 'me' : ''));
       }
       if (me && !meShown) {
-        lbMeEl.appendChild(lbNote('你的名次'));
+        lbMeEl.appendChild(lbNote(t('lb.you')));
         lbMeEl.appendChild(lbLine(lbCols(me), 'me'));
       } else if (!currentUser) {
-        lbMeEl.appendChild(lbNote(IS_OFFSITE
-          ? '想列名排行榜?到官網版 satsumacreative.tw/kw 登入遊玩'
-          : '登入(訪客也行)並打過一場後,這裡會顯示你的名次'));
+        lbMeEl.appendChild(lbNote(IS_OFFSITE ? t('lb.offsiteNote') : t('lb.loginNote')));
       }
     } catch (e) {
-      lbStatusEl.textContent = '排行榜讀取失敗,晚點再試(不影響遊戲)';
+      lbStatusEl.textContent = t('lb.error');
       console.warn('leaderboard', e);
     } finally {
       lbLoading = false;
@@ -1418,9 +1492,10 @@ function start(models: Models) {
     const dirx = Math.cos(wa), diry = Math.sin(wa);
     const bx = wp.x + dirx * CFG.bladeStart, by = wp.y + diry * CFG.bladeStart;
 
-    let t = (v.x - bx) * dirx + (v.y - by) * diry;
-    t = Math.max(0, Math.min(attacker.weapon.length, t));
-    const cx = bx + dirx * t, cy = by + diry * t;
+    // proj = 受害者投影到刃線上的位置(夾在刃長範圍內);變數名別用 t,那是 i18n 的 t()
+    let proj = (v.x - bx) * dirx + (v.y - by) * diry;
+    proj = Math.max(0, Math.min(attacker.weapon.length, proj));
+    const cx = bx + dirx * proj, cy = by + diry * proj;
     if (Math.hypot(v.x - cx, v.y - cy) > CFG.bodyRadius + 0.12 * S) return;
 
     const key = attacker.isPlayer ? 'p->e' : 'e->p';
@@ -1449,8 +1524,8 @@ function start(models: Models) {
       const targetArm = localY < 0 ? victim.swordArm : victim.shieldArm;
       if (targetArm.joint && Math.random() < Math.min(0.5, dmg / 160)) {
         victim.severArm(targetArm, impact.x, impact.y);
-        const armName = targetArm === victim.swordArm ? '持劍手' : '持盾手';
-        flashMsg(victim.isPlayer ? `你的${armName}被砍斷了!` : `砍斷了敵人的${armName}!`);
+        const armName = targetArm === victim.swordArm ? t('arm.sword') : t('arm.shield');
+        flashMsg(victim.isPlayer ? t('msg.armLost', { arm: armName }) : t('msg.armCut', { arm: armName }));
       }
     }
 
@@ -1502,7 +1577,7 @@ function start(models: Models) {
       if (victim.isPlayer) {
         SAVE.losses += 1;
         persistSave();
-        msgEl.textContent = '你被擊敗了…';
+        msgEl.textContent = t('msg.defeat');
       } else {
         SAVE.gold += foe.reward;
         SAVE.wins += 1;
@@ -1510,9 +1585,11 @@ function start(models: Models) {
         if (enemyIdx === SAVE.maxLevel && enemyIdx < ENEMY_ROSTER.length - 1) {
           SAVE.maxLevel = enemyIdx + 1;
           advanceToNext = true;
-          msgEl.textContent = `你贏了!+${foe.reward} 金幣|解鎖第 ${enemyIdx + 2} 關:${ENEMY_ROSTER[enemyIdx + 1].label}`;
+          msgEl.textContent = t('msg.winUnlock', {
+            gold: foe.reward, n: enemyIdx + 2, name: t(ENEMY_ROSTER[enemyIdx + 1].nameKey),
+          });
         } else {
-          msgEl.textContent = `你贏了!+${foe.reward} 金幣`;
+          msgEl.textContent = t('msg.win', { gold: foe.reward });
         }
         persistSave();
         updateGold();
