@@ -1,0 +1,43 @@
+# push main → build → 把 dist 同步進 satsumacreative repo 的 kw/ → 觸發該 repo 既有的 VM 自動部署。
+# 走 repo 鏈不直接 rsync VM:webroot 必須永遠等於 satsumacreative repo(fleet-check 副本漂移紀律)。
+# 金鑰:satsumacreative 的 write deploy key,存在本 repo secret SATSUMA_DEPLOY_KEY。
+name: deploy
+on:
+  push:
+    branches: [main]
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+jobs:
+  build-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm run build
+      - name: Push dist into satsumacreative kw/
+        env:
+          DEPLOY_KEY: ${{ secrets.SATSUMA_DEPLOY_KEY }}
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "$DEPLOY_KEY" > ~/.ssh/kd_deploy
+          chmod 600 ~/.ssh/kd_deploy
+          ssh-keyscan github.com >> ~/.ssh/known_hosts 2>/dev/null
+          export GIT_SSH_COMMAND="ssh -i ~/.ssh/kd_deploy -o IdentitiesOnly=yes"
+          git clone --depth 1 git@github.com:saomin0317/satsumacreative.git /tmp/satsuma
+          rsync -a --delete --exclude '.git' dist/ /tmp/satsuma/kw/
+          cd /tmp/satsuma
+          git config user.name "kw-deploy-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add kw
+          if git diff --cached --quiet; then
+            echo "kw/ 無變更,略過 commit"
+          else
+            git commit -m "kw: 自動部署 knight-duel ${GITHUB_SHA::7}"
+            git push origin main
+          fi
