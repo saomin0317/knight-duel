@@ -14,12 +14,21 @@ const app = initializeApp({
 });
 export const auth = getAuth(app);
 
-const API = location.hostname === 'localhost'
-  ? 'https://satsumacreative.tw/kw-api/save.php'
-  : '/kw-api/save.php';
-const LB_API = location.hostname === 'localhost'
-  ? 'https://satsumacreative.tw/kw-api/leaderboard.php'
-  : '/kw-api/leaderboard.php';
+// 外站模式(itch.io 等第三方 iframe 網域):
+// (a) 相對路徑 /kw-api/ 會打到人家的網域 → 一律改用絕對網址;
+// (b) Firebase 登入 popup 受「授權網域」限制,非官網網域行為不可靠 → 整個登入區藏起來,只走本機存檔。
+// 官網(含 www)與 localhost 是完整模式,行為與外站模式無關,維持原樣。
+const FULL_HOSTS = ['satsumacreative.tw', 'www.satsumacreative.tw', 'localhost'];
+export const IS_OFFSITE = !FULL_HOSTS.includes(location.hostname);
+
+// 同源相對路徑只有「官網本站」用得到;localhost 與外站都打絕對網址
+const SAME_ORIGIN = !IS_OFFSITE && location.hostname !== 'localhost';
+const API = SAME_ORIGIN
+  ? '/kw-api/save.php'
+  : 'https://satsumacreative.tw/kw-api/save.php';
+const LB_API = SAME_ORIGIN
+  ? '/kw-api/leaderboard.php'
+  : 'https://satsumacreative.tw/kw-api/leaderboard.php';
 
 export function loginGoogle() { return signInWithPopup(auth, new GoogleAuthProvider()); }
 export function loginApple() { return signInWithPopup(auth, new OAuthProvider('apple.com')); }

@@ -119,6 +119,8 @@
     #acc-err { color: #d66; font-size: 11px; min-height: 14px; margin-top: 4px; }
     .acc-legal { font-size: 10px; color: #887; margin-top: 8px; line-height: 1.6; }
     .acc-legal a { color: #e7b73c; text-decoration: underline; }
+    #acc-ext a { display: block; color: #e7b73c; font-size: 12px; line-height: 1.7; text-decoration: none; }
+    #acc-ext a:hover { text-decoration: underline; }
     /* 戰鬥中按鈕 */
     #battle-btns { position: fixed; bottom: 40px; right: 16px; display: flex; flex-direction: column; gap: 8px; }
     #battle-btns.hidden { display: none; }
@@ -351,7 +353,9 @@
     <div id="menu-title">⚔ 武士圓舞曲</div>
     <div id="hero-label">◀ ▶ 或滑鼠拖曳旋轉人物<br>鐵匠鋪買的裝備會直接穿在身上</div>
     <div id="account">
-      <h4>帳號</h4>
+      <h4 id="acc-head">帳號</h4>
+      <!-- 外站模式(itch.io 等第三方網域)才顯示:登入區換成導回官網的一行 -->
+      <div id="acc-ext" style="display:none"><a href="https://satsumacreative.tw/kw" target="_blank" rel="noopener">雲端存檔與排行榜列名,請玩官網版 satsumacreative.tw/kw</a></div>
       <div id="acc-out">
         <button id="btn-google">Google 登入</button>
         <button id="btn-apple"> Apple 登入</button>

@@ -3,7 +3,7 @@ import { GLTFLoader, type GLTF } from 'three/addons/loaders/GLTFLoader.js';
 import { clone as cloneSkeleton } from 'three/addons/utils/SkeletonUtils.js';
 import RAPIER from '@dimforge/rapier2d-compat';
 import type { User } from 'firebase/auth';
-import { loginGoogle, loginApple, loginAnon, logout, watchAuth, cloudLoad, cloudSave, fetchLeaderboard, type LbRow } from './account';
+import { loginGoogle, loginApple, loginAnon, logout, watchAuth, cloudLoad, cloudSave, fetchLeaderboard, IS_OFFSITE, type LbRow } from './account';
 
 // ============================================================
 // 可調參數 — 手感全在這裡,調完存檔瀏覽器會自動重載
@@ -1079,6 +1079,7 @@ function start(models: Models) {
   const accStats = document.getElementById('acc-stats')!;
   const accErr = document.getElementById('acc-err')!;
   function renderAccount() {
+    if (IS_OFFSITE) return; // 外站模式沒有帳號區可畫
     const u = currentUser;
     accOut.style.display = u ? 'none' : 'block';
     accIn.style.display = u ? 'block' : 'none';
@@ -1089,34 +1090,44 @@ function start(models: Models) {
     accErr.textContent = '';
     fn().catch((e: Error) => { accErr.textContent = `登入失敗:${e.message.slice(0, 60)}`; });
   }
-  document.getElementById('btn-google')!.addEventListener('click', () => doLogin(loginGoogle));
-  document.getElementById('btn-apple')!.addEventListener('click', () => doLogin(loginApple));
-  document.getElementById('btn-anon')!.addEventListener('click', () => doLogin(loginAnon));
-  document.getElementById('btn-logout')!.addEventListener('click', () => { logout(); });
-  watchAuth(async (u) => {
-    currentUser = u;
-    renderAccount();
-    if (!u) return;
-    try {
-      const cloud = await cloudLoad(u);
-      if (cloud && cloud.data) {
-        // 雲端有存檔 → 雲端為準;正規化後比對,不同才重載(避免無限重載)
-        const cloudNorm = JSON.stringify(normalizeSave(cloud.data));
-        if (cloudNorm !== JSON.stringify(SAVE)) {
-          localStorage.setItem('kd_save', cloudNorm);
-          localStorage.setItem('kd_mode', 'menu');
-          location.reload();
+  // 外站模式(itch.io 等第三方 iframe 網域):Firebase 授權網域不含對方網域,登入必失敗,
+  // 所以整個登入區藏起來換成一行導回官網的連結;存檔照走既有的 localStorage 本機路徑。
+  if (IS_OFFSITE) {
+    accOut.style.display = 'none';
+    accIn.style.display = 'none';
+    accErr.style.display = 'none';
+    document.getElementById('acc-head')!.style.display = 'none';
+    document.getElementById('acc-ext')!.style.display = 'block';
+  } else {
+    document.getElementById('btn-google')!.addEventListener('click', () => doLogin(loginGoogle));
+    document.getElementById('btn-apple')!.addEventListener('click', () => doLogin(loginApple));
+    document.getElementById('btn-anon')!.addEventListener('click', () => doLogin(loginAnon));
+    document.getElementById('btn-logout')!.addEventListener('click', () => { logout(); });
+    watchAuth(async (u) => {
+      currentUser = u;
+      renderAccount();
+      if (!u) return;
+      try {
+        const cloud = await cloudLoad(u);
+        if (cloud && cloud.data) {
+          // 雲端有存檔 → 雲端為準;正規化後比對,不同才重載(避免無限重載)
+          const cloudNorm = JSON.stringify(normalizeSave(cloud.data));
+          if (cloudNorm !== JSON.stringify(SAVE)) {
+            localStorage.setItem('kd_save', cloudNorm);
+            localStorage.setItem('kd_mode', 'menu');
+            location.reload();
+          }
+        } else {
+          // 首次登入:把本地進度上雲
+          cloudSave(u, SAVE).catch(() => {});
         }
-      } else {
-        // 首次登入:把本地進度上雲
-        cloudSave(u, SAVE).catch(() => {});
+      } catch (e) {
+        accErr.textContent = '雲端同步失敗(進度仍存在本機)';
+        console.warn('cloud sync', e);
       }
-    } catch (e) {
-      accErr.textContent = '雲端同步失敗(進度仍存在本機)';
-      console.warn('cloud sync', e);
-    }
-  });
-  renderAccount();
+    });
+    renderAccount();
+  }
 
   // ---------- 排行榜 ----------
   // 公開榜(前 50),有登入才另外算自己的名次;整段失敗只顯示訊息,不擋遊戲。
@@ -1174,7 +1185,9 @@ function start(models: Models) {
         lbMeEl.appendChild(lbNote('你的名次'));
         lbMeEl.appendChild(lbLine(lbCols(me), 'me'));
       } else if (!currentUser) {
-        lbMeEl.appendChild(lbNote('登入(訪客也行)並打過一場後,這裡會顯示你的名次'));
+        lbMeEl.appendChild(lbNote(IS_OFFSITE
+          ? '想列名排行榜?到官網版 satsumacreative.tw/kw 登入遊玩'
+          : '登入(訪客也行)並打過一場後,這裡會顯示你的名次'));
       }
     } catch (e) {
       lbStatusEl.textContent = '排行榜讀取失敗,晚點再試(不影響遊戲)';
@@ -1210,7 +1223,9 @@ function start(models: Models) {
     || (navigator as unknown as { standalone?: boolean }).standalone === true;
   const isIOS = /iPhone|iPad|iPod/.test(navigator.userAgent);
   function showInstallBtns(show: boolean) {
-    for (const b of installBtns) b.style.display = show ? 'inline-block' : 'none';
+    // 外站模式在別人的 iframe 裡,PWA 安裝裝到的是對方頁面 → 一律不顯示
+    const on = show && !IS_OFFSITE;
+    for (const b of installBtns) b.style.display = on ? 'inline-block' : 'none';
   }
   window.addEventListener('beforeinstallprompt', (e) => {
     e.preventDefault();
