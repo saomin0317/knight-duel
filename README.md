@@ -1,6 +1,6 @@
 # 武士圓舞曲 Knight's Waltz
 
-俯視角物理決鬥遊戲(Web 3D)。**[▶ 直接遊玩](https://satsumacreative.tw/kw/)**(官網版:雲端存檔+排行榜)|[itch.io](https://saomin.itch.io/knightswaltz)
+俯視角物理決鬥遊戲(Web 3D)。**[▶ 直接遊玩](https://satsumacreative.tw/kw/)**(官網版:雲端存檔+排行榜)|[itch.io](https://saomin.itch.io/knightswaltz)|[▶ Trailer](https://youtu.be/Fde8nysl82Y)
 
 ![開場畫面](docs/screenshot-title.jpg)
 
