@@ -1790,7 +1790,14 @@ function start(models: Models) {
     let n = Math.floor(acc / STEP);
     acc -= n * STEP;
     if (n > 2) n = 2; // 太慢的裝置寧可放慢,不一次補一大堆格(原本也是最多吃 1/30 秒)
+    if (manualStep) return;
     for (let i = 0; i < n; i++) tick(STEP, i === n - 1);
+  }
+  let manualStep = false; // DEV 逐格錄影:停掉 RAF 推進,由 __frame 自己推
+  let devZoom = 1; // DEV 錄封面:鏡頭拉近倍率(正式版永遠 1)
+  if (import.meta.env.DEV) {
+    (window as unknown as Record<string, unknown>).__zoom = (z: number) => { devZoom = z; };
+    (window as unknown as Record<string, unknown>).__frame = (steps: number) => { manualStep = true; for (let i = 0; i < steps; i++) tick(STEP, i === steps - 1); };
   }
   function tick(dt: number, render: boolean) {
     clock += dt;
@@ -1857,7 +1864,7 @@ function start(models: Models) {
       const pp = player.pos, ep = enemy.pos;
       const midX = (pp.x + ep.x) / 2, midY = (pp.y + ep.y) / 2;
       const sep = Math.hypot(pp.x - ep.x, pp.y - ep.y);
-      const h = THREE.MathUtils.clamp(8 + sep * 1.1, 10.5, 16.5);
+      const h = THREE.MathUtils.clamp(8 + sep * 1.1, 10.5, 16.5) * devZoom;
       camPos.lerp(new THREE.Vector3(midX, h, -midY + h * 0.35), k);
       camLook.lerp(new THREE.Vector3(midX, 0, -midY), k);
     }
