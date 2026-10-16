@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "build:crazygames": "VITE_PLATFORM=crazygames vite build --outDir dist-crazygames"
   },
   "dependencies": {
     "@dimforge/rapier2d-compat": "^0.20.0",

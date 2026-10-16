@@ -1,9 +1,10 @@
+import './storage-shim';
 import * as THREE from 'three';
 import { GLTFLoader, type GLTF } from 'three/addons/loaders/GLTFLoader.js';
 import { clone as cloneSkeleton } from 'three/addons/utils/SkeletonUtils.js';
 import RAPIER from '@dimforge/rapier2d-compat';
 import type { User } from 'firebase/auth';
-import { loginGoogle, loginApple, loginAnon, logout, watchAuth, cloudLoad, cloudSave, fetchLeaderboard, IS_OFFSITE, type LbRow } from './account';
+import { loginGoogle, loginApple, loginAnon, logout, watchAuth, cloudLoad, cloudSave, fetchLeaderboard, IS_OFFSITE, ON_CRAZYGAMES, type LbRow } from './account';
 import { t, getLang, setLang, mapServerName, type Key } from './i18n';
 
 // ============================================================
@@ -1174,7 +1175,10 @@ function start(models: Models) {
     accIn.style.display = 'none';
     accErr.style.display = 'none';
     document.getElementById('acc-head')!.style.display = 'none';
-    document.getElementById('acc-ext')!.style.display = 'block';
+    document.getElementById('acc-ext')!.style.display = ON_CRAZYGAMES ? 'none' : 'block';
+    if (ON_CRAZYGAMES) document.getElementById('btn-lb')!.style.display = 'none';
+    // 「關於本遊戲」頁連到官網與 GitHub(可遊玩的外部版本)→ CrazyGames 版拿掉;服務條款/隱私權平台允許,保留
+    if (ON_CRAZYGAMES) { const ab = document.getElementById('lnk-about'); ab?.nextSibling?.remove(); ab?.remove(); }
   } else {
     document.getElementById('btn-google')!.addEventListener('click', () => doLogin(loginGoogle));
     document.getElementById('btn-apple')!.addEventListener('click', () => doLogin(loginApple));
@@ -1613,9 +1617,11 @@ function start(models: Models) {
 
   // ---------- 輸入 ----------
   const keys = new Set<string>();
+  // 字母看實體鍵位(e.code):中文輸入法開著時 e.key 會變成注音或 'Process',WASD 就失靈;AZERTY 鍵盤也照位置走
+  const keyOf = (e: KeyboardEvent) => /^Key[A-Z]$/.test(e.code) ? e.code.slice(3).toLowerCase() : /^Digit[0-9]$/.test(e.code) ? e.code.slice(5) : e.key.toLowerCase();
   window.addEventListener('keydown', (e) => {
     if (e.key.startsWith('Arrow')) e.preventDefault();
-    const k = e.key.toLowerCase();
+    const k = keyOf(e);
     keys.add(k);
     if (k === 'r' && mode === 'battle') restart();
     if (k === 'b') toggleShop();
@@ -1625,7 +1631,7 @@ function start(models: Models) {
       else if (mode === 'battle') openMenu();
     }
   });
-  window.addEventListener('keyup', (e) => keys.delete(e.key.toLowerCase()));
+  window.addEventListener('keyup', (e) => keys.delete(keyOf(e)));
 
   // 觸控按鈕:按住=按鍵按住,直接餵進 keys(多點觸控,邊轉邊走)
   // 開場畫面蓋著時先不顯示(會從半透明遮罩底下露出來很亂),進入遊戲才開
@@ -1774,10 +1780,19 @@ function start(models: Models) {
 
   // ---------- 主迴圈 ----------
   let last = performance.now();
+  // 固定 60Hz 步進:rapier world.step() 一次固定走 1/60 秒,以前每畫一格 step 一次 → 120/144Hz 螢幕整場變快、30fps 手機物理變慢
+  const STEP = 1 / 60;
+  let acc = 0;
   function frame(now: number) {
     requestAnimationFrame(frame);
-    const dt = Math.min((now - last) / 1000, 1 / 30);
+    acc += Math.min((now - last) / 1000, 0.25);
     last = now;
+    let n = Math.floor(acc / STEP);
+    acc -= n * STEP;
+    if (n > 2) n = 2; // 太慢的裝置寧可放慢,不一次補一大堆格(原本也是最多吃 1/30 秒)
+    for (let i = 0; i < n; i++) tick(STEP, i === n - 1);
+  }
+  function tick(dt: number, render: boolean) {
     clock += dt;
 
     if (mode === 'battle' && !gameOver && !shopOpen && titleEl.style.display === 'none') {
@@ -1849,7 +1864,7 @@ function start(models: Models) {
     camera.position.copy(camPos);
     camera.lookAt(camLook);
 
-    renderer.render(scene, camera);
+    if (render) renderer.render(scene, camera);
   }
   requestAnimationFrame(frame);
 

@@ -20,6 +20,9 @@ export const auth = getAuth(app);
 // 官網(含 www)與 localhost 是完整模式,行為與外站模式無關,維持原樣。
 const FULL_HOSTS = ['satsumacreative.tw', 'www.satsumacreative.tw', 'localhost'];
 export const IS_OFFSITE = !FULL_HOSTS.includes(location.hostname);
+// CrazyGames 專用版(`npm run build:crazygames`):平台禁止導去可遊玩的外部網址、Basic Launch 不能有外部帳號,
+// 所以連「回官網登入」的連結和排行榜(要打自家 API)都拿掉
+export const ON_CRAZYGAMES = import.meta.env.VITE_PLATFORM === 'crazygames';
 
 // 同源相對路徑只有「官網本站」用得到;localhost 與外站都打絕對網址
 const SAME_ORIGIN = !IS_OFFSITE && location.hostname !== 'localhost';

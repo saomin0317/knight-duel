@@ -383,7 +383,8 @@
   <script>
     // 開場畫面只在本分頁第一次出現——這裡就要判斷,不能等遊戲載完才藏
     // (正式站模型下載要幾秒,晚藏的話每次 reload 都會閃出開場畫面)
-    if (sessionStorage.getItem('kd_title_seen')) document.getElementById('titlescreen').style.display = 'none';
+    // 嵌在別站 iframe 時瀏覽器可能擋 sessionStorage(一碰就丟例外),要包 try
+    try { if (sessionStorage.getItem('kd_title_seen')) document.getElementById('titlescreen').style.display = 'none'; } catch (e) { /* 擋掉就照常顯示開場 */ }
     // 載入畫面在主程式下載完成前就會出現,英文使用者不該先看到中文
     //(偵測規則與 src/i18n.ts 一致:localStorage 優先,否則看 navigator.language)
     try {

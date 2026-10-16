@@ -8,6 +8,15 @@
 
 `npm run dev` 開發、`npm run build` 打包。
 
+## CrazyGames 版(2026-10-16)
+
+- `npm run build:crazygames` → `dist-crazygames/`(另一份,不進 git)。`VITE_PLATFORM=crazygames` 時 `ON_CRAZYGAMES` 為真:拿掉「回官網登入」連結、排行榜按鈕、「關於本遊戲」連結(平台禁止導去可遊玩的外部版本;服務條款/隱私權允許、保留)。官網版與 itch.io 版行為不變
+- 三個跟平台規定有關、但官網版也受益的修正(做法同 kw-survivor):
+  - 主迴圈固定 60Hz 步進:rapier `world.step()` 固定走 1/60 秒,以前每畫一格 step 一次 → 120/144Hz 螢幕整場變快、30fps 物理變慢
+  - 鍵盤字母看 `e.code`:中文輸入法開著時 `e.key` 是注音或 `Process`,WASD 失靈
+  - `src/storage-shim.ts` + index.html 開場判斷包 try:別站 iframe 擋 storage 時會丟例外卡在載入中
+- 角色模型瘦身 `tools/slim_models.mjs`:只留 Idle / Walking_A / Cheer,九個角色 38MB → 4MB(要播新動畫先用 git 取回原檔再重跑)
+
 ## 緣起
 
 這個專案一開始只是想試試看:現在的網頁 3D(Three.js + WebAssembly 物理引擎)到底能做到什麼程度。
